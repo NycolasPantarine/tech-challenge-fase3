@@ -54,11 +54,12 @@ devolver categoria e urgencia, o mapeamento e revisavel sem retreino e a limitac
 transparente. Isso exige probabilidades calibradas (ver D-017).
 
 ## D-012 - Modelo escolhido por dados
-Candidatos: regressao logistica, Naive Bayes calibrado e Random Forest (TF-IDF).
-Selecao por validacao cruzada de 3 dobras no treino, criterio F1 macro de urgencia. O teste
-e avaliado uma unica vez, depois da escolha. Resultado: Naive Bayes calibrado (F1 0,637 na
-validacao cruzada; 0,632 no teste). A recomendacao inicial, regressao logistica, perdeu
-para ele; foi a comparacao por dados que mostrou isso.
+Candidatos: regressao logistica, Naive Bayes (simples e calibrado) e Random Forest
+(TF-IDF). Selecao por validacao cruzada de 3 dobras no treino, criterio F1 macro de
+urgencia. O teste e avaliado uma unica vez, depois da escolha. Resultado: Naive Bayes
+calibrado (F1 0,637 na validacao cruzada; 0,632 no teste). A recomendacao inicial,
+regressao logistica, perdeu para ele; foi a comparacao por dados que mostrou isso.
+Tudo reproduzivel com `python -m triagem.treino`.
 
 ## D-013 - Dados e modelo nao sao versionados
 Dados baixados por script com SHA-256 fixo; modelo gerado pelo treino. No git entra so
@@ -75,23 +76,37 @@ parcial) e re-download se o arquivo local estiver corrompido.
 ## D-016 - Normalizacao de texto fora do pipeline
 Minusculas, tokenizacao e remocao de stop words ficam em `triagem.texto.normalizar`. O
 `TfidfVectorizer` com `lowercase=True` ou `stop_words` vira um operador ONNX
-(`StringNormalizer`) que exige locale do sistema e falha em imagens `python:3.11-slim`
-(erro reproduzido). Com a normalizacao fora, o ONNX converte e concordou com o
-scikit-learn em 99,8% dos rotulos (diferenca maxima de probabilidade de 0,016) no teste
-preliminar. A mesma funcao e usada no treino e na API.
+(`StringNormalizer`), que falhou ao carregar num ambiente sem o locale `en_US.UTF-8`
+(situacao provavel em imagens slim; a confirmar no Docker, bloco 1d). Com a normalizacao
+fora do pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
+scikit-learn sera medida no benchmark reproduzivel da Etapa 4. A mesma funcao e usada no
+treino e na API.
 
 ## D-017 - Calibracao de probabilidades
-O `ComplementNB` sozinho gera probabilidades planas (media da maior probabilidade: 0,43,
-contra 0,67 da regressao logistica), o que distorce a soma por nivel e o limiar. A
-calibracao isotonica (`CalibratedClassifierCV`, 3 dobras) corrigiu: F1 de urgencia foi de
-0,543 para 0,637.
+O `ComplementNB` sozinho gera probabilidades planas, o que distorce a soma por nivel e o
+limiar. A calibracao isotonica (`CalibratedClassifierCV`, 3 dobras) corrige: F1 de
+urgencia de 0,543 (sem calibracao) para 0,637 (calibrado). Os dois candidatos ficam na
+comparacao para que o efeito seja verificavel.
 
 ## D-018 - Limiar de decisao para `urgente`
 Errar um caso urgente e o erro mais caro. O limiar de `urgente` e calibrado na validacao
-cruzada para um recall alvo de 80% (padrao, configuravel) e usado na API. No teste: recall
-0,823 (contra 0,781 sem limiar) com precisao praticamente igual (0,663 contra 0,660).
+cruzada para um recall alvo de 80% (padrao, configuravel por `--recall-alvo`) e usado na
+API. No teste: recall 0,823 (contra 0,781 sem limiar) com precisao praticamente igual
+(0,663 contra 0,660). Pontos de operacao: recall alvo 0,85 gera limiar 0,340 com recall
+0,878 e precisao 0,637; 0,90 gera limiar 0,251 com recall 0,930 e precisao 0,599. Subir o
+alvo e uma decisao clinica (quanto alarme falso o hospital aceita), nao tecnica.
 
 ## D-019 - Inferencia em thread unica
 O Random Forest treinado com `n_jobs=-1` cria um pool de threads a cada chamada, o que
 penaliza requisicoes individuais. O modelo e salvo com `n_jobs=1`. O benchmark da Etapa 4
 usa `n_jobs=1` no modelo original para a comparacao com ONNX ser justa.
+
+## D-020 - Reprodutibilidade numerica
+Sementes fixas, dados com SHA-256 e `poetry.lock` garantem a mesma logica em qualquer
+maquina, mas nao resultados identicos bit a bit: a soma em ponto flutuante das bibliotecas
+de algebra linear depende do numero de threads e da CPU. Medido: mesma versao de
+scikit-learn, numpy e scipy, o recall da regressao logistica foi 0,7146 com 1 thread e
+0,7164 com 2 ou 8; o treino em Windows (Python 3.11) chegou a F1 de teste 0,628 contra
+0,632 em Linux (Python 3.13). Python, numpy e scipy foram descartados como causa. Os testes
+automatizados verificam comportamento, nao numeros exatos. No Docker (bloco 1d) o numero de
+threads sera fixado para o treino em container ser estavel.

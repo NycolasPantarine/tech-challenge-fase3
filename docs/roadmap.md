@@ -19,9 +19,9 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | Sub-bloco | Entrega | Status |
 |---|---|---|
 | 1a | config, `.dockerignore`, download verificado do dataset, mapeamento de urgencia, testes | concluido |
-| 1b | comparacao de modelos, treino, avaliacao e artefato gerado | em validacao |
+| 1b | comparacao de modelos, treino, avaliacao e artefato gerado | concluido (ajuste de reprodutibilidade em validacao) |
 | 1c | API FastAPI (`/predict`, `/health`) com testes | pendente |
-| 1d | Dockerfile multi-stage, usuario nao-root, HEALTHCHECK | pendente |
+| 1d | Dockerfile multi-stage, usuario nao-root, HEALTHCHECK, threads fixas no treino | pendente |
 | 1e | baseline de latencia (P50/P95/P99) e README | pendente |
 
 ## Bloco 0 - criterios de aceite (concluido)

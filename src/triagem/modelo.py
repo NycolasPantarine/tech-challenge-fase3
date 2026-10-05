@@ -17,6 +17,7 @@ class TipoModelo(StrEnum):
     """Classificadores candidatos."""
 
     LOGISTICA = "logistica"
+    NAIVE_BAYES_SIMPLES = "naive_bayes"
     NAIVE_BAYES = "naive_bayes_calibrado"
     FLORESTA = "floresta"
 
@@ -36,6 +37,9 @@ def _vetorizador() -> TfidfVectorizer:
 def _classificador(tipo: TipoModelo, n_jobs: int) -> object:
     if tipo is TipoModelo.LOGISTICA:
         return LogisticRegression(C=5.0, max_iter=1000, class_weight="balanced")
+    if tipo is TipoModelo.NAIVE_BAYES_SIMPLES:
+        # Mantido na comparacao como referencia: mostra o efeito da calibracao (abaixo).
+        return ComplementNB()
     if tipo is TipoModelo.NAIVE_BAYES:
         # O ComplementNB sozinho gera probabilidades pouco confiaveis (planas), o que distorce
         # a soma por nivel de urgencia e o limiar. A calibracao isotonica corrige isso.

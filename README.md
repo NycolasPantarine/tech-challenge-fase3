@@ -41,18 +41,21 @@ enunciado foi definido um mapeamento explicito:
 ## Modelo
 
 O modelo preve as 5 categorias do dataset (TF-IDF com unigramas e bigramas) e a urgencia
-e derivada somando as probabilidades de cada grupo. Tres candidatos foram comparados por
-validacao cruzada (3 dobras) **somente no treino**; o conjunto de teste foi usado uma unica
+e derivada somando as probabilidades de cada grupo. Quatro candidatos sao comparados por
+validacao cruzada (3 dobras) **somente no treino**; o conjunto de teste e usado uma unica
 vez, apos a escolha. O criterio de selecao e o F1 macro de urgencia.
 
 | Candidato | F1 urgencia | Recall urgente | Acuracia (5 categorias) |
 |---|---|---|---|
 | Regressao logistica | 0,599 | 0,716 | 0,556 |
+| Naive Bayes (sem calibracao) | 0,543 | 0,856 | 0,600 |
 | **Naive Bayes calibrado** | **0,637** | 0,762 | **0,602** |
 | Random Forest | 0,452 | 0,826 | 0,517 |
 
-O Naive Bayes sem calibracao parecia o pior candidato: suas probabilidades sao pouco
-confiaveis e distorcem a soma por nivel de urgencia. A calibracao isotonica corrigiu isso.
+O Naive Bayes sem calibracao tem boa acuracia de categoria, mas probabilidades pouco
+confiaveis (planas), que distorcem a soma por nivel de urgencia e o limiar. A calibracao
+isotonica corrige isso e leva o F1 de urgencia de 0,543 para 0,637. Os dois candidatos
+estao na comparacao para que esse efeito possa ser verificado com `python -m triagem.treino`.
 
 ### Resultado final (conjunto de teste)
 
@@ -68,6 +71,16 @@ Em triagem, deixar de sinalizar um caso urgente e o erro mais caro. Por isso o l
 > seguro do erro, mas gera carga extra de revisao. Este dataset e dificil (5 categorias com
 > fronteiras difusas); o foco do trabalho e a engenharia do ciclo de vida do modelo, nao
 > maximizar a acuracia.
+
+### Reprodutibilidade
+
+O treino e deterministico no codigo (sementes fixas, dados validados por SHA-256, versoes
+travadas no `poetry.lock`), mas os numeros **nao sao identicos bit a bit entre maquinas**:
+a soma em ponto flutuante das bibliotecas de algebra linear muda com o numero de threads e
+com a CPU. Os valores acima foram obtidos em Linux com Python 3.13; em Windows com
+Python 3.11 o mesmo codigo chegou a F1 de teste 0,628 (limiar 0,415). A escolha do modelo
+e a conclusao sao as mesmas; espere diferencas de ate cerca de 0,005. As versoes usadas em
+cada treino ficam registradas em `artifacts/metadata.json`.
 
 ## Ambiente de desenvolvimento
 
