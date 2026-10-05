@@ -40,3 +40,35 @@ via variaveis de ambiente.
 ## D-009 - Repositorio publico
 Criado como publico para que o avaliador acesse o codigo, o historico de commits e a
 documentacao sem precisar de convite.
+
+
+## D-010 - Dataset: Medical Abstracts TC Corpus
+Sugerido pelo enunciado e com mais de 2.000 amostras. Baixado do repositorio original
+(GitHub), nao do Kaggle. Licenca CC BY-SA 3.0: atribuicao no README e dados nao
+redistribuidos (ver D-013).
+
+## D-011 - Urgencia derivada da categoria clinica
+O dataset nao tem rotulo de urgencia. O modelo preve as 5 categorias e a urgencia
+(`normal`, `atencao`, `urgente`) e derivada por mapeamento explicito
+(`src/triagem/urgencia.py`), somando as probabilidades de cada grupo. Assim a API pode
+devolver categoria e urgencia, o mapeamento e revisavel sem retreino e a limitacao fica
+transparente. Treinar direto nos 3 niveis sera comparado no bloco 1b.
+
+## D-012 - Modelo escolhido por dados
+Candidatos: regressao logistica, LinearSVC e Random Forest (TF-IDF). A escolha usa
+validacao cruzada com foco no recall da classe `urgente` (erro mais caro), e nao
+preferencia previa. Testes preliminares: acuracia 48% a 53% em 5 classes; ONNX reduz
+a latencia em ~25% (regressao logistica) e ~150x (Random Forest, a confirmar com
+`n_jobs=1` no modelo original).
+
+## D-013 - Dados e modelo nao sao versionados
+Dados baixados por script com SHA-256 fixo; modelo gerado pelo treino. No git entra so
+codigo. Sem DVC: o desafio nao exige e o download verificado garante reprodutibilidade.
+
+## D-014 - Estrategia de nuvem (a documentar no README)
+GCP Cloud Run para a API em tempo real e job batch para retreino. Apenas documentada,
+sem deploy.
+
+## D-015 - Download seguro de dados
+Somente https, timeout, verificacao de SHA-256, gravacao atomica (nunca deixa arquivo
+parcial) e re-download se o arquivo local estiver corrompido.

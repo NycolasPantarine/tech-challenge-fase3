@@ -28,3 +28,8 @@ Thumbs.db
 # ATENCAO: padroes ancorados na raiz (/) de proposito.
 # Na fase 2 um "models/" solto bloqueou src/models/ no git.
 # Decisao sobre versionar dados e artefatos de modelo fica para os blocos 1 e 2.
+
+
+# Dados e artefatos gerados (nao versionados; ver docs/decisoes_tecnicas.md D-013)
+/data/
+/artifacts/

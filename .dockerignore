@@ -1,0 +1,19 @@
+# Contexto de build enxuto: so entra o que a imagem de inferencia precisa.
+.git
+.github
+.venv
+.env
+.env.*
+!.env.example
+**/__pycache__
+**/*.py[cod]
+.pytest_cache
+.ruff_cache
+.coverage
+htmlcov
+data
+artifacts
+tests
+docs
+airflow
+monitoring
