@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "triagem"
+version = "0.1.0"
+description = "Tech Challenge Fase 3 - triagem de urgencia em laudos medicos com pipeline MLOps"
+authors = ["Nycolas Pantarine"]
+readme = "README.md"
+packages = [{ include = "triagem", from = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.11,<3.14"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6"
+pytest = "^8.0"
+pre-commit = "^3.7"
+
+[build-system]
+requires = ["poetry-core>=1.8.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

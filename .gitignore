@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# Ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# IDE / SO
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Airflow (volumes locais)
+/airflow/logs/
+/airflow/*.db
+
+# ATENCAO: padroes ancorados na raiz (/) de proposito.
+# Na fase 2 um "models/" solto bloqueou src/models/ no git.
+# Decisao sobre versionar dados e artefatos de modelo fica para os blocos 1 e 2.
