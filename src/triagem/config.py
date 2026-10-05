@@ -27,3 +27,13 @@ class Settings:
     def raw_dir(self) -> Path:
         """Diretorio dos dados brutos baixados."""
         return self.data_dir / "raw"
+
+    @property
+    def model_path(self) -> Path:
+        """Arquivo do pipeline treinado (gerado pelo treino, nao versionado)."""
+        return self.artifacts_dir / "modelo.joblib"
+
+    @property
+    def metadata_path(self) -> Path:
+        """Metadados do treino: versoes, hash dos dados, metricas e limiar."""
+        return self.artifacts_dir / "metadata.json"

@@ -68,3 +68,24 @@ def agregar_probabilidades(probabilidades: Mapping[int, float]) -> dict[Urgencia
     for categoria, probabilidade in probabilidades.items():
         agregado[CATEGORIA_PARA_URGENCIA[categoria]] += probabilidade
     return agregado
+
+
+def decidir_urgencia(
+    probabilidades: Mapping[Urgencia, float], limiar_urgente: float | None = None
+) -> Urgencia:
+    """Decide o nivel de urgencia a partir das probabilidades por nivel.
+
+    Sem limiar, escolhe o nivel de maior probabilidade. Com limiar, classifica como urgente
+    sempre que a probabilidade de urgente atingir o limiar (priorizando recall do caso mais
+    grave); caso contrario escolhe entre normal e atencao pela maior probabilidade.
+
+    Raises:
+        ValueError: se o limiar estiver fora de [0, 1].
+    """
+    if limiar_urgente is None:
+        return max(Urgencia, key=lambda nivel: probabilidades[nivel])
+    if not 0.0 <= limiar_urgente <= 1.0:
+        raise ValueError(f"Limiar deve estar entre 0 e 1: {limiar_urgente!r}")
+    if probabilidades[Urgencia.URGENTE] >= limiar_urgente:
+        return Urgencia.URGENTE
+    return max((Urgencia.NORMAL, Urgencia.ATENCAO), key=lambda nivel: probabilidades[nivel])

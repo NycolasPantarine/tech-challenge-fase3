@@ -33,3 +33,10 @@ def test_settings_e_imutavel() -> None:
 
     with pytest.raises(AttributeError):
         settings.data_dir = Path("c")
+
+
+def test_caminhos_dos_artefatos(tmp_path: Path) -> None:
+    settings = Settings(data_dir=tmp_path, artifacts_dir=tmp_path / "artifacts")
+
+    assert settings.model_path == tmp_path / "artifacts" / "modelo.joblib"
+    assert settings.metadata_path == tmp_path / "artifacts" / "metadata.json"
