@@ -1,4 +1,5 @@
 import json
+from collections.abc import Callable
 from pathlib import Path
 
 import joblib
@@ -11,33 +12,22 @@ from triagem.modelo import TipoModelo, construir_pipeline, preparar_para_inferen
 from triagem.texto import normalizar
 from triagem.treino import ResultadoCandidato, executar_treino, selecionar_melhor
 
-# Vocabulario exclusivo por categoria, para o problema ser separavel e o teste, deterministico.
-VOCABULARIO = {
-    1: "tumor carcinoma neoplasm metastasis oncology",
-    2: "gastric hepatic colon bowel pancreas",
-    3: "neuron cerebral seizure dementia stroke",
-    4: "cardiac aortic coronary ventricular infarction",
-    5: "infection fever inflammation sepsis syndrome",
-}
-
-
-def _corpus(repeticoes: int) -> Corpus:
-    textos, categorias = [], []
-    for categoria, palavras in VOCABULARIO.items():
-        for i in range(repeticoes):
-            textos.append(f"{palavras} {palavras} caso {i}")
-            categorias.append(categoria)
-    return Corpus(textos=textos, categorias=categorias)
-
 
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(data_dir=tmp_path / "data", artifacts_dir=tmp_path / "artifacts")
 
 
-def test_fluxo_completo_gera_modelo_e_metadados(settings: Settings) -> None:
+def test_fluxo_completo_gera_modelo_e_metadados(
+    settings: Settings, fabrica_corpus: Callable[[int], Corpus]
+) -> None:
     metadata = executar_treino(
-        settings, _corpus(30), _corpus(10), folds=2, recall_alvo=0.8, hash_treino="abc"
+        settings,
+        fabrica_corpus(30),
+        fabrica_corpus(10),
+        folds=2,
+        recall_alvo=0.8,
+        hash_treino="abc",
     )
 
     assert settings.model_path.exists()
@@ -50,8 +40,10 @@ def test_fluxo_completo_gera_modelo_e_metadados(settings: Settings) -> None:
     assert metadata["classes"] == [1, 2, 3, 4, 5]
 
 
-def test_modelo_salvo_preve_categoria_correta(settings: Settings) -> None:
-    executar_treino(settings, _corpus(30), _corpus(10), folds=2)
+def test_modelo_salvo_preve_categoria_correta(
+    settings: Settings, fabrica_corpus: Callable[[int], Corpus]
+) -> None:
+    executar_treino(settings, fabrica_corpus(30), fabrica_corpus(10), folds=2)
 
     pipeline = joblib.load(settings.model_path)
     texto = normalizar("Cardiac coronary infarction in aortic ventricular disease")

@@ -5,9 +5,9 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. A API, o Docker, o monitoramento e a decisao de arquitetura em nuvem
-> entram nos proximos blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas
-> em `docs/decisoes_tecnicas.md`.
+> Em construcao. O Docker, o monitoramento e a decisao de arquitetura em nuvem entram
+> nos proximos blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
+> `docs/decisoes_tecnicas.md`.
 
 ## Problema
 
@@ -81,6 +81,44 @@ com a CPU. Os valores acima foram obtidos em Linux com Python 3.13; em Windows c
 Python 3.11 o mesmo codigo chegou a F1 de teste 0,628 (limiar 0,415). A escolha do modelo
 e a conclusao sao as mesmas; espere diferencas de ate cerca de 0,005. As versoes usadas em
 cada treino ficam registradas em `artifacts/metadata.json`.
+
+## API
+
+Servidor FastAPI. Documentacao interativa (Swagger) em `http://localhost:8000/docs`.
+
+```powershell
+poetry run uvicorn triagem.api:criar_app --factory --port 8000
+```
+
+A API carrega o modelo de `artifacts/` ao iniciar e **recusa subir** se o artefato nao
+existir ou se a versao do scikit-learn for diferente da usada no treino.
+
+**`POST /predict`**: classifica um laudo (1 a 10.000 caracteres).
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://localhost:8000/predict -ContentType "application/json" -Body '{"texto": "Patient with acute myocardial infarction and chest pain"}'
+```
+
+Resposta:
+
+```json
+{
+  "urgencia": "urgente",
+  "probabilidades_urgencia": {"normal": 0.12, "atencao": 0.21, "urgente": 0.67},
+  "categoria": {"id": 4, "nome": "cardiovascular diseases", "probabilidade": 0.58},
+  "limiar_urgente": 0.415,
+  "versao_modelo": "naive_bayes_calibrado@2026-10-05T20:49:00+00:00"
+}
+```
+
+Os valores acima ilustram o formato. Entrada invalida (vazia, acima do limite, sem
+termos uteis) retorna `422`.
+
+**`GET /health`**: confirma que o servico esta no ar e informa a versao do modelo.
+
+> **Privacidade:** laudos sao dados sensiveis. O conteudo do texto **nunca** e registrado
+> em log; so metodo, rota, status, duracao e um identificador da requisicao
+> (`X-Request-ID`). Ferramenta de apoio a decisao: nao substitui avaliacao clinica.
 
 ## Ambiente de desenvolvimento
 

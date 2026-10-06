@@ -14,9 +14,9 @@ fica duplicada no `.pre-commit-config.yaml`. Gitleaks ficou de fora por enquanto
 o hook exige toolchain Go e pode falhar no Windows. Reavaliar no Bloco 2.
 
 ## D-004 - Dependencias entram por bloco
-Bloco 0 so tem ferramentas de desenvolvimento. FastAPI e afins entram no Bloco 1c;
-scikit-learn no 1b; prometheus-client no 3; ONNX no 4. Airflow roda em container proprio
-e nao entra no `pyproject.toml`, para evitar conflito de versoes com a API.
+Bloco 0 so tem ferramentas de desenvolvimento. scikit-learn entra no 1b; FastAPI e uvicorn
+no 1c; prometheus-client no 3; ONNX no 4. Airflow roda em container proprio e nao entra no
+`pyproject.toml`, para evitar conflito de versoes com a API.
 
 ## D-005 - `.gitignore` com padroes ancorados
 Padroes de pasta usam `/` na raiz. Na fase 2 um `models/` solto bloqueou `src/models/`.
@@ -110,3 +110,31 @@ scikit-learn, numpy e scipy, o recall da regressao logistica foi 0,7146 com 1 th
 0,632 em Linux (Python 3.13). Python, numpy e scipy foram descartados como causa. Os testes
 automatizados verificam comportamento, nao numeros exatos. No Docker (bloco 1d) o numero de
 threads sera fixado para o treino em container ser estavel.
+
+## D-021 - Contrato da API
+`POST /predict` recebe `{"texto": ...}` (1 a 10.000 caracteres; o maior laudo do dataset
+tem 3.999) e devolve urgencia, probabilidades por nivel, categoria clinica, limiar e versao
+do modelo. `GET /health` confirma que o servico esta no ar. Entrada invalida e texto sem
+termos uteis retornam 422 (sem termos uteis o modelo "preveria" so pelo prior, resultado
+enganoso). Nomes em portugues, como o resto do projeto. Sem endpoint de lote: o desafio
+nao pede.
+
+## D-022 - Privacidade nos logs
+Laudo e dado sensivel (LGPD). O conteudo do texto nunca e registrado: so metodo, rota,
+status, duracao e `X-Request-ID`. Ha teste automatizado que falha se o texto aparecer no log.
+
+## D-023 - API falha rapido e valida versao do modelo
+O modelo e carregado uma vez, na inicializacao. Sem artefato, ou se a versao do
+scikit-learn do artefato diferir da instalada, a API recusa subir em vez de responder
+possivelmente errado. Por isso nao existe 503 no `/health`: se o servico responde, o
+modelo esta carregado. O artefato e carregado com joblib (pickle), seguro apenas para
+arquivos gerados por este projeto.
+
+## D-024 - Servico de classificacao separado da API
+`classificador.py` nao depende do FastAPI: a logica e testavel sem servidor e o modelo pode
+ser trocado por ONNX (Etapa 4) sem mexer na API. Endpoints sincronos (`def`): a inferencia
+usa CPU e, em `async def`, bloquearia o loop de eventos.
+
+## D-025 - httpx2 em vez de httpx nos testes
+O `TestClient` do Starlette atual marca o `httpx` como obsoleto e recomenda `httpx2`.
+Dependencia apenas de desenvolvimento.
