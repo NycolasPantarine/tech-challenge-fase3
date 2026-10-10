@@ -3,7 +3,8 @@
 - **inferencia**: chama `Classificador.classificar` direto, no processo local. Mede so o modelo
   (normalizacao, TF-IDF, predicao e agregacao), sem FastAPI e sem rede.
 - **http**: chama `POST /predict` de uma API em execucao (ex.: no container), com uma conexao
-  persistente. Mede o que um cliente sente, incluindo FastAPI e a rede do Docker.
+  persistente. Mede o que um cliente sente, incluindo FastAPI e a rede do Docker. Cada
+  requisicao vai numa unica escrita no socket (ver D-028).
 
 As requisicoes sao sequenciais: o objetivo e a latencia de uma requisicao isolada, nao o
 throughput. As primeiras chamadas (aquecimento) sao descartadas porque a primeira costuma ser
@@ -15,11 +16,11 @@ Uso: python -m triagem.benchmark [--url http://localhost:8010]
 """
 
 import argparse
-import http.client
 import json
 import logging
 import os
 import platform
+import socket
 import sys
 import time
 from collections.abc import Callable, Sequence
@@ -134,16 +135,68 @@ def medir(
     return latencias
 
 
+def ler_resposta(soquete: socket.socket) -> tuple[int, bytes]:
+    """Le uma resposta HTTP/1.1 com `Content-Length` e devolve (status, corpo).
+
+    Raises:
+        ConnectionError: o servidor encerrou a conexao antes de terminar a resposta.
+        RespostaHttpInvalidaError: resposta sem `Content-Length` (ex.: chunked).
+    """
+    dados = b""
+    while b"\r\n\r\n" not in dados:
+        parte = soquete.recv(65536)
+        if not parte:
+            raise ConnectionError("Conexao encerrada pelo servidor.")
+        dados += parte
+    cabecalho, _, corpo = dados.partition(b"\r\n\r\n")
+    linhas = cabecalho.decode("iso-8859-1").split("\r\n")
+    status = int(linhas[0].split()[1])
+    tamanho = None
+    for linha in linhas[1:]:
+        nome, _, valor = linha.partition(":")
+        if nome.strip().lower() == "content-length":
+            tamanho = int(valor)
+    if tamanho is None:
+        raise RespostaHttpInvalidaError("Resposta sem Content-Length.")
+    while len(corpo) < tamanho:
+        parte = soquete.recv(65536)
+        if not parte:
+            raise ConnectionError("Conexao encerrada pelo servidor.")
+        corpo += parte
+    return status, corpo
+
+
 class ClienteHttp:
-    """Cliente minimo da API, com conexao persistente (biblioteca padrao, sem dependencias)."""
+    """Cliente minimo da API sobre socket, com conexao persistente (so biblioteca padrao).
+
+    Cabecalhos e corpo vao numa unica escrita. O `http.client` escreve os dois em separado e,
+    no Docker Desktop para Windows, isso somou ~45 ms por requisicao (medido; ver D-028).
+    """
 
     def __init__(self, url_base: str, timeout: float = TIMEOUT_HTTP_SEGUNDOS) -> None:
         partes = urlsplit(url_base)
         if partes.scheme != "http" or not partes.hostname:
             raise ValueError(f"Use uma URL no formato http://host:porta, recebido {url_base!r}.")
-        self._conexao = http.client.HTTPConnection(
-            partes.hostname, partes.port or 80, timeout=timeout
-        )
+        self._host = partes.hostname
+        self._porta = partes.port or 80
+        self._timeout = timeout
+        self._soquete: socket.socket | None = None
+
+    def _conectar(self) -> socket.socket:
+        if self._soquete is None:
+            soquete = socket.create_connection((self._host, self._porta), timeout=self._timeout)
+            soquete.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self._soquete = soquete
+        return self._soquete
+
+    def _requisitar(self, metodo: str, caminho: str, corpo: bytes = b"") -> tuple[int, bytes]:
+        cabecalhos = [f"{metodo} {caminho} HTTP/1.1", f"Host: {self._host}:{self._porta}"]
+        if corpo:
+            cabecalhos += ["Content-Type: application/json", f"Content-Length: {len(corpo)}"]
+        requisicao = ("\r\n".join(cabecalhos) + "\r\n\r\n").encode("ascii") + corpo
+        soquete = self._conectar()
+        soquete.sendall(requisicao)
+        return ler_resposta(soquete)
 
     def versao_modelo(self) -> str:
         """Le a versao do modelo em `GET /health`.
@@ -152,28 +205,24 @@ class ClienteHttp:
         medida (segundos) e o servidor a encerraria (keep-alive de 5 s no uvicorn). A proxima
         requisicao abre uma conexao nova, que ai sim e reaproveitada durante a medicao.
         """
-        self._conexao.request("GET", "/health")
-        resposta = self._conexao.getresponse()
-        corpo = resposta.read()
-        self._conexao.close()
-        if resposta.status != 200:
-            raise RespostaHttpInvalidaError(f"/health respondeu {resposta.status}.")
+        status, corpo = self._requisitar("GET", "/health")
+        self.fechar()
+        if status != 200:
+            raise RespostaHttpInvalidaError(f"/health respondeu {status}.")
         return str(json.loads(corpo)["versao_modelo"])
 
     def classificar(self, texto: str) -> None:
         """Envia `POST /predict` e le a resposta inteira (descartando o conteudo)."""
         corpo = json.dumps({"texto": texto}).encode("utf-8")
-        self._conexao.request(
-            "POST", "/predict", body=corpo, headers={"Content-Type": "application/json"}
-        )
-        resposta = self._conexao.getresponse()
-        resposta.read()
-        if resposta.status != 200:
-            raise RespostaHttpInvalidaError(f"/predict respondeu {resposta.status}.")
+        status, _ = self._requisitar("POST", "/predict", corpo)
+        if status != 200:
+            raise RespostaHttpInvalidaError(f"/predict respondeu {status}.")
 
     def fechar(self) -> None:
-        """Fecha a conexao."""
-        self._conexao.close()
+        """Fecha a conexao, se aberta."""
+        if self._soquete is not None:
+            self._soquete.close()
+            self._soquete = None
 
 
 def montar_relatorio(
@@ -289,7 +338,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         textos = carregar_textos(settings, parametros)
         classificador = Classificador.carregar(settings)
         relatorio = executar(classificador, textos, args.url, args.rotulo, parametros)
-    except (OSError, ValueError, RuntimeError, http.client.HTTPException) as erro:
+    except (OSError, ValueError, RuntimeError) as erro:
         logger.error("Benchmark falhou: %s", erro)
         sys.exit(1)
 

@@ -6,6 +6,7 @@ import threading
 from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,6 +19,7 @@ from triagem.benchmark import (
     calcular_estatisticas,
     executar,
     formatar_tabela,
+    ler_resposta,
     main,
     medir,
 )
@@ -155,6 +157,81 @@ def test_cliente_http_falha_com_status_diferente_de_200(servidor: _ServidorFalso
             cliente.classificar("texto")
     finally:
         cliente.fechar()
+
+
+class _SoqueteGravador:
+    """Envolve um socket real e registra cada `sendall` e cada `setsockopt`."""
+
+    def __init__(self, real: socket.socket) -> None:
+        self.real = real
+        self.escritas: list[bytes] = []
+        self.opcoes: list[tuple[Any, ...]] = []
+
+    def sendall(self, dados: bytes) -> None:
+        self.escritas.append(dados)
+        self.real.sendall(dados)
+
+    def setsockopt(self, *args: Any) -> None:
+        self.opcoes.append(args)
+        self.real.setsockopt(*args)
+
+    def __getattr__(self, nome: str) -> object:
+        return getattr(self.real, nome)
+
+
+def test_cliente_envia_cabecalhos_e_corpo_numa_unica_escrita(
+    servidor: _ServidorFalso, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gravadores: list[_SoqueteGravador] = []
+    criar_conexao = socket.create_connection
+
+    def criar_gravador(*args: Any, **kwargs: Any) -> _SoqueteGravador:
+        gravador = _SoqueteGravador(criar_conexao(*args, **kwargs))
+        gravadores.append(gravador)
+        return gravador
+
+    monkeypatch.setattr("triagem.benchmark.socket.create_connection", criar_gravador)
+    cliente = ClienteHttp(_url(servidor))
+    try:
+        cliente.classificar("texto do laudo")
+    finally:
+        cliente.fechar()
+
+    (gravador,) = gravadores
+    assert len(gravador.escritas) == 1  # cabecalhos e corpo juntos, sem Nagle entre os dois
+    assert b"Content-Length: " in gravador.escritas[0]
+    assert gravador.escritas[0].endswith(b'{"texto": "texto do laudo"}')
+    assert (socket.IPPROTO_TCP, socket.TCP_NODELAY, 1) in gravador.opcoes
+
+
+def test_ler_resposta_junta_cabecalho_e_corpo_recebidos_em_partes() -> None:
+    cliente, servidor_ = socket.socketpair()
+    with cliente, servidor_:
+        servidor_.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\n\r\nhello")
+        servidor_.sendall(b" world")
+
+        status, corpo = ler_resposta(cliente)
+
+    assert (status, corpo) == (200, b"hello world")
+
+
+def test_ler_resposta_exige_content_length() -> None:
+    cliente, servidor_ = socket.socketpair()
+    with cliente, servidor_:
+        servidor_.sendall(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+
+        with pytest.raises(RespostaHttpInvalidaError, match="Content-Length"):
+            ler_resposta(cliente)
+
+
+def test_ler_resposta_falha_se_o_servidor_encerrar_a_conexao() -> None:
+    cliente, servidor_ = socket.socketpair()
+    with cliente:
+        servidor_.sendall(b"HTTP/1.1 200 OK\r\nContent-Length: 50\r\n\r\ncurto")
+        servidor_.close()
+
+        with pytest.raises(ConnectionError):
+            ler_resposta(cliente)
 
 
 def test_executar_so_inferencia(settings_com_modelo: Settings) -> None:

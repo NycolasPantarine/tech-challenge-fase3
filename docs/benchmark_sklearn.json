@@ -1,0 +1,39 @@
+{
+  "rotulo": "sklearn",
+  "gerado_em": "2026-10-10T23:20:39+00:00",
+  "parametros": {
+    "amostras": 200,
+    "aquecimento": 100,
+    "medicoes": 1000,
+    "semente": 42
+  },
+  "modelo": {
+    "versao_local": "naive_bayes_calibrado@2026-10-05T23:49:20+00:00",
+    "versao_http": "naive_bayes_calibrado@2026-10-05T23:49:20+00:00"
+  },
+  "ambiente": {
+    "python": "3.11.9",
+    "plataforma": "Windows-10-10.0.26200-SP0",
+    "cpus": 8,
+    "scikit_learn": "1.9.1",
+    "numpy": "2.4.6"
+  },
+  "resultados": {
+    "inferencia": {
+      "medicoes": 1000,
+      "media_ms": 10.106,
+      "p50_ms": 9.135,
+      "p95_ms": 16.52,
+      "p99_ms": 21.064,
+      "maximo_ms": 28.985
+    },
+    "http": {
+      "medicoes": 1000,
+      "media_ms": 60.476,
+      "p50_ms": 58.364,
+      "p95_ms": 72.22,
+      "p99_ms": 79.75,
+      "maximo_ms": 88.698
+    }
+  }
+}
