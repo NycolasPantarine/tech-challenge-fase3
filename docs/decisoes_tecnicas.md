@@ -77,8 +77,8 @@ parcial) e re-download se o arquivo local estiver corrompido.
 Minusculas, tokenizacao e remocao de stop words ficam em `triagem.texto.normalizar`. O
 `TfidfVectorizer` com `lowercase=True` ou `stop_words` vira um operador ONNX
 (`StringNormalizer`), que falhou ao carregar num ambiente sem o locale `en_US.UTF-8`
-(situacao provavel em imagens slim; a confirmar no Docker, bloco 1d). Com a normalizacao
-fora do pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
+(situacao provavel em imagens slim; a confirmar na Etapa 4). Com a normalizacao fora do
+pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
 scikit-learn sera medida no benchmark reproduzivel da Etapa 4. A mesma funcao e usada no
 treino e na API.
 
@@ -108,8 +108,11 @@ de algebra linear depende do numero de threads e da CPU. Medido: mesma versao de
 scikit-learn, numpy e scipy, o recall da regressao logistica foi 0,7146 com 1 thread e
 0,7164 com 2 ou 8; o treino em Windows (Python 3.11) chegou a F1 de teste 0,628 contra
 0,632 em Linux (Python 3.13). Python, numpy e scipy foram descartados como causa. Os testes
-automatizados verificam comportamento, nao numeros exatos. No Docker (bloco 1d) o numero de
-threads sera fixado para o treino em container ser estavel.
+automatizados verificam comportamento, nao numeros exatos. Fixar as threads no codigo nao
+garantiria numeros identicos entre Windows e Linux (bibliotecas BLAS diferentes) e
+invalidaria os resultados ja registrados, entao ficou fora do 1d. Quando o treino rodar em
+container (DAG do Airflow, bloco 2), o ambiente passa a ser unico e os numeros de
+referencia sao os dele.
 
 ## D-021 - Contrato da API
 `POST /predict` recebe `{"texto": ...}` (1 a 10.000 caracteres; o maior laudo do dataset
@@ -138,3 +141,26 @@ usa CPU e, em `async def`, bloquearia o loop de eventos.
 ## D-025 - httpx2 em vez de httpx nos testes
 O `TestClient` do Starlette atual marca o `httpx` como obsoleto e recomenda `httpx2`.
 Dependencia apenas de desenvolvimento.
+
+## D-026 - Modelo montado como volume, nao embutido na imagem
+A imagem contem so codigo e dependencias; `artifacts/` e montado em `/app/artifacts`
+(somente leitura). O modelo e gerado pelo treino (depois, pela DAG do Airflow, que grava no
+mesmo volume) e a API apenas le. Retreinar nao exige rebuild, a imagem nao carrega dado
+derivado de dataset e a mesma imagem serve a qualquer versao de modelo. Custo: sem o volume
+o container recusa subir (D-023), que e o comportamento desejado. Treinar durante o
+`docker build` foi descartado: baixaria o dataset a cada build e levaria minutos.
+
+## D-027 - Dockerfile multi-stage, usuario nao-root e HEALTHCHECK
+- Estagio de build instala so as dependencias de runtime (`poetry install --only main
+  --no-root`) a partir do `poetry.lock`; o Poetry nao chega na imagem final.
+- `pyproject.toml` e `poetry.lock` sao copiados antes do codigo para aproveitar o cache de
+  camadas (licao da fase 2). O pacote e usado via `PYTHONPATH=/app/src`, sem instalar o
+  projeto no ambiente virtual, porque o ambiente e copiado entre estagios.
+- Base `python:3.11-slim`, a mesma minor usada no desenvolvimento; o `poetry.lock` foi
+  resolvido nela.
+- Usuario `app` (uid 10001) sem shell de login; codigo e dependencias pertencem ao root e
+  ficam somente leitura para a API.
+- `HEALTHCHECK` com o proprio Python (a imagem slim nao tem curl) batendo em `/health`.
+- `.dockerignore` deixa fora `.git`, `.env*`, dados, artefatos, testes e docs: nenhum
+  segredo ou dado entra no contexto de build.
+- O tamanho da imagem sera medido e registrado no README, nao presumido.

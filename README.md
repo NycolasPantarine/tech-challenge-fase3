@@ -5,8 +5,8 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. O Docker, o monitoramento e a decisao de arquitetura em nuvem entram
-> nos proximos blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
+> Em construcao. O monitoramento e a decisao de arquitetura em nuvem entram nos proximos
+> blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
 > `docs/decisoes_tecnicas.md`.
 
 ## Problema
@@ -119,6 +119,30 @@ termos uteis) retorna `422`.
 > **Privacidade:** laudos sao dados sensiveis. O conteudo do texto **nunca** e registrado
 > em log; so metodo, rota, status, duracao e um identificador da requisicao
 > (`X-Request-ID`). Ferramenta de apoio a decisao: nao substitui avaliacao clinica.
+
+## Docker
+
+A imagem contem so o codigo e as dependencias de runtime. O **modelo nao fica na imagem**:
+`artifacts/` e montado como volume somente leitura (decisao D-026), o que permite retreinar
+sem rebuild. Sem o volume o container recusa subir.
+
+```powershell
+poetry run python -m triagem.treino   # gera artifacts/ (uma vez)
+docker build -t triagem-api:dev .
+docker run --rm -d --name triagem-api -p 8000:8000 -v "${PWD}\artifacts:/app/artifacts:ro" triagem-api:dev
+```
+
+Se a porta 8000 estiver ocupada, troque o numero da esquerda (`-p 8010:8000`). Conferir:
+
+```powershell
+docker ps                                       # STATUS deve chegar a "healthy"
+Invoke-RestMethod http://localhost:8000/health
+docker stop triagem-api
+```
+
+Caracteristicas da imagem (D-027): build em dois estagios (o Poetry nao chega na imagem
+final), base `python:3.11-slim`, execucao com usuario sem privilegios (uid 10001),
+`HEALTHCHECK` em `/health` e nenhum segredo ou dado no contexto de build (`.dockerignore`).
 
 ## Ambiente de desenvolvimento
 
