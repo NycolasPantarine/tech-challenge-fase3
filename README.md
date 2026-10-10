@@ -5,9 +5,9 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. O monitoramento e a decisao de arquitetura em nuvem entram nos proximos
-> blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
-> `docs/decisoes_tecnicas.md`.
+> Em construcao. O CI/CD, a orquestracao do treino, o monitoramento e a decisao de
+> arquitetura em nuvem entram nos proximos blocos. Progresso em `docs/roadmap.md`;
+> decisoes e justificativas em `docs/decisoes_tecnicas.md`.
 
 ## Problema
 
@@ -145,6 +145,35 @@ final), base `python:3.11-slim`, execucao com usuario sem privilegios (uid 10001
 `HEALTHCHECK` em `/health` e nenhum segredo ou dado no contexto de build (`.dockerignore`).
 
 Tamanho medido da imagem: 490 MB (`docker images`, descomprimido).
+
+## Latencia (baseline do modelo original)
+
+Referencia para a comparacao com o modelo otimizado (ONNX, Etapa 4). O script mede dois
+niveis: **inferencia** (so o modelo, no processo local) e **http** (`POST /predict` da API em
+container). Requisicoes sequenciais, 100 de aquecimento descartadas e 1.000 medidas, usando
+200 laudos reais do conjunto de teste sorteados com semente fixa.
+
+```powershell
+docker run --rm -d --name triagem-api -p 8010:8000 -v "${PWD}\artifacts:/app/artifacts:ro" triagem-api:dev
+poetry run python -m triagem.benchmark --url http://localhost:8010
+docker stop triagem-api
+```
+
+Resultado (Windows 10, Python 3.11.9, 8 CPUs, Docker Desktop; `docs/benchmark_sklearn.json`):
+
+| Nivel | Media (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Max (ms) |
+|---|---|---|---|---|---|
+| Inferencia (modelo) | 10,9 | 9,8 | 17,5 | 23,1 | 43,3 |
+| HTTP (API em container) | 14,2 | 12,8 | 24,5 | 32,9 | 44,8 |
+
+O HTTP soma cerca de 3 ms (P50) sobre a inferencia: FastAPI, serializacao e rede do Docker.
+
+> **Como interpretar:** o valor depende da maquina e serve para comparar o modelo original com
+> o otimizado **na mesma maquina**, nao como numero absoluto de producao. P50 e P95 variaram
+> pouco entre execucoes (P50 de inferencia entre 9,1 e 9,8 ms; de HTTP entre 12,8 e 13,1 ms);
+> P99 e maximo oscilam mais, por serem caudas. O cliente envia cada requisicao em uma unica
+> escrita: com o `http.client` padrao (duas escritas) o Docker Desktop no Windows chegou a
+> 57 ms por requisicao contra 11 ms (detalhes e medicoes em D-028).
 
 ## Ambiente de desenvolvimento
 

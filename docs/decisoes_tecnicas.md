@@ -77,8 +77,8 @@ parcial) e re-download se o arquivo local estiver corrompido.
 Minusculas, tokenizacao e remocao de stop words ficam em `triagem.texto.normalizar`. O
 `TfidfVectorizer` com `lowercase=True` ou `stop_words` vira um operador ONNX
 (`StringNormalizer`), que falhou ao carregar num ambiente sem o locale `en_US.UTF-8`
-(situacao provavel em imagens slim; a confirmar na Etapa 4). Com a normalizacao fora do
-pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
+(situacao provavel em imagens slim; a confirmar no Docker, bloco 1d). Com a normalizacao
+fora do pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
 scikit-learn sera medida no benchmark reproduzivel da Etapa 4. A mesma funcao e usada no
 treino e na API.
 
@@ -175,12 +175,31 @@ execucao, por exemplo no container: o que o cliente sente, com FastAPI e rede). 
   seguintes) e 1.000 medicoes.
 - Textos: 200 laudos reais do conjunto de teste, sorteados com semente fixa; laudo sintetico
   nao representaria o custo real, que depende do tamanho do texto.
-- Cliente HTTP com `http.client` e conexao persistente (biblioteca padrao, sem dependencia
-  nova); sem keep-alive cada medicao incluiria o handshake TCP.
+- Cliente HTTP sobre socket (biblioteca padrao, sem dependencia nova) com conexao persistente.
 - A API e consultada antes de medir: se estiver fora do ar, o script falha antes de gastar
   tempo. Se a versao do modelo da API diferir da local, ha aviso.
 - Percentis por interpolacao linear (padrao do numpy). P50 e P95 sao estaveis entre
   execucoes; P99 e maximo oscilam mais, por serem caudas.
-- O resultado depende da maquina e, no Windows, do overhead de rede do Docker Desktop. Serve
-  para comparar o modelo original com o otimizado (Etapa 4) **na mesma maquina**, nao como
-  valor absoluto de producao. O JSON gerado registra versoes, CPU e parametros.
+- O resultado depende da maquina. Serve para comparar o modelo original com o otimizado
+  (Etapa 4) **na mesma maquina**, nao como valor absoluto de producao. O JSON gerado
+  (`docs/benchmark_sklearn.json`) registra versoes, CPU e parametros.
+
+Duas armadilhas encontradas na validacao em Windows com Docker Desktop, ambas corrigidas:
+1. **Conexao ociosa.** A consulta inicial ao `/health` abria uma conexao que ficava parada
+   enquanto a inferencia local era medida (segundos); o servidor (keep-alive de 5 s no
+   uvicorn) a encerrava e a primeira chamada HTTP falhava. A conexao do `/health` agora e
+   descartada e a medicao abre uma nova. Ha teste de regressao com servidor que encerra a
+   conexao ociosa.
+2. **Requisicao em dois pacotes.** O `http.client` envia cabecalhos e corpo em duas escritas.
+   Medido contra a mesma API: de dentro do container, 13,2 ms (duas escritas) e 12,1 ms
+   (uma escrita); do Windows, passando pelo Docker Desktop, **57,3 ms** (duas escritas) contra
+   **11,3 ms** (uma escrita). O log do servidor mostrava 52 a 65 ms por requisicao, ou seja, o
+   atraso ocorre antes de a classificacao comecar. A hipotese e a interacao do algoritmo de
+   Nagle com ACK atrasado no caminho de rede do Docker Desktop; ela explica a ordem de
+   grandeza, mas **nao foi comprovada**. O cliente do benchmark envia cada requisicao em uma
+   unica escrita (como o `curl` faz com corpos pequenos), com `TCP_NODELAY`, para que o numero
+   reflita a API e nao essa peculiaridade, que esconderia qualquer ganho da otimizacao.
+
+Hipoteses descartadas por medicao: o numero de threads do BLAS/OpenMP no container nao muda
+a latencia da classificacao (7,6 ms com threads padrao e 8,0 ms com 1 thread, em 8 CPUs), e a
+classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).

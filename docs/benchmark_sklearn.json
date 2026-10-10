@@ -1,6 +1,6 @@
 {
   "rotulo": "sklearn",
-  "gerado_em": "2026-10-10T23:20:39+00:00",
+  "gerado_em": "2026-10-10T23:42:54+00:00",
   "parametros": {
     "amostras": 200,
     "aquecimento": 100,
@@ -21,19 +21,19 @@
   "resultados": {
     "inferencia": {
       "medicoes": 1000,
-      "media_ms": 10.106,
-      "p50_ms": 9.135,
-      "p95_ms": 16.52,
-      "p99_ms": 21.064,
-      "maximo_ms": 28.985
+      "media_ms": 10.942,
+      "p50_ms": 9.789,
+      "p95_ms": 17.512,
+      "p99_ms": 23.128,
+      "maximo_ms": 43.335
     },
     "http": {
       "medicoes": 1000,
-      "media_ms": 60.476,
-      "p50_ms": 58.364,
-      "p95_ms": 72.22,
-      "p99_ms": 79.75,
-      "maximo_ms": 88.698
+      "media_ms": 14.207,
+      "p50_ms": 12.764,
+      "p95_ms": 24.539,
+      "p99_ms": 32.866,
+      "maximo_ms": 44.842
     }
   }
 }
