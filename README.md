@@ -144,6 +144,8 @@ Caracteristicas da imagem (D-027): build em dois estagios (o Poetry nao chega na
 final), base `python:3.11-slim`, execucao com usuario sem privilegios (uid 10001),
 `HEALTHCHECK` em `/health` e nenhum segredo ou dado no contexto de build (`.dockerignore`).
 
+Tamanho medido da imagem: 490 MB (`docker images`, descomprimido).
+
 ## Ambiente de desenvolvimento
 
 O projeto precisa ficar fora do OneDrive (ex.: `C:\dev\tech-challenge-fase3`).

@@ -163,4 +163,24 @@ o container recusa subir (D-023), que e o comportamento desejado. Treinar durant
 - `HEALTHCHECK` com o proprio Python (a imagem slim nao tem curl) batendo em `/health`.
 - `.dockerignore` deixa fora `.git`, `.env*`, dados, artefatos, testes e docs: nenhum
   segredo ou dado entra no contexto de build.
-- O tamanho da imagem sera medido e registrado no README, nao presumido.
+- Tamanho medido da imagem: 490 MB (`docker images`, descomprimido). Nao foi otimizado
+  alem do multi-stage e da base slim; a composicao por camada nao foi investigada.
+
+## D-028 - Benchmark de latencia em dois niveis
+`python -m triagem.benchmark` mede a classificacao em dois niveis: **inferencia** (chama o
+`Classificador` direto: so o modelo) e **http** (chama `POST /predict` de uma API em
+execucao, por exemplo no container: o que o cliente sente, com FastAPI e rede). Escolhas:
+- Requisicoes sequenciais: o objetivo e a latencia de uma requisicao isolada, nao throughput.
+- 100 chamadas de aquecimento descartadas (a primeira chamada e muito mais lenta que as
+  seguintes) e 1.000 medicoes.
+- Textos: 200 laudos reais do conjunto de teste, sorteados com semente fixa; laudo sintetico
+  nao representaria o custo real, que depende do tamanho do texto.
+- Cliente HTTP com `http.client` e conexao persistente (biblioteca padrao, sem dependencia
+  nova); sem keep-alive cada medicao incluiria o handshake TCP.
+- A API e consultada antes de medir: se estiver fora do ar, o script falha antes de gastar
+  tempo. Se a versao do modelo da API diferir da local, ha aviso.
+- Percentis por interpolacao linear (padrao do numpy). P50 e P95 sao estaveis entre
+  execucoes; P99 e maximo oscilam mais, por serem caudas.
+- O resultado depende da maquina e, no Windows, do overhead de rede do Docker Desktop. Serve
+  para comparar o modelo original com o otimizado (Etapa 4) **na mesma maquina**, nao como
+  valor absoluto de producao. O JSON gerado registra versoes, CPU e parametros.
