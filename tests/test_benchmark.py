@@ -32,6 +32,7 @@ class _ServidorFalso(ThreadingHTTPServer):
     """API falsa: responde /health e /predict, com status configuravel."""
 
     status_predict = 200
+    encerrar_conexao_apos_health = False
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -47,6 +48,10 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         self._responder(200, {"status": "ok", "versao_modelo": VERSAO_FALSA})
+        if getattr(self.server, "encerrar_conexao_apos_health", False):
+            # Simula o timeout de keep-alive do servidor: fecha a conexao ociosa sem avisar
+            # com "Connection: close", como o uvicorn faz apos 5 s sem requisicoes.
+            self.close_connection = True
 
     def do_POST(self) -> None:  # noqa: N802
         self.rfile.read(int(self.headers["Content-Length"]))
@@ -196,6 +201,20 @@ def test_executar_avisa_quando_modelo_da_api_difere(
         executar(classificador, TEXTOS, _url(servidor), "teste", parametros)
 
     assert "difere do local" in caplog.text
+
+
+def test_executar_http_sobrevive_a_conexao_encerrada_pelo_servidor(
+    settings_com_modelo: Settings, servidor: _ServidorFalso
+) -> None:
+    # Regressao: a inferencia leva segundos e o servidor encerra a conexao ociosa aberta
+    # pela consulta ao /health; a medicao HTTP precisa abrir uma conexao nova.
+    servidor.encerrar_conexao_apos_health = True
+    classificador = Classificador.carregar(settings_com_modelo)
+    parametros = Parametros(amostras=3, aquecimento=1, medicoes=4, semente=1)
+
+    relatorio = executar(classificador, TEXTOS, _url(servidor), "teste", parametros)
+
+    assert relatorio["resultados"]["http"]["medicoes"] == 4
 
 
 def test_executar_falha_rapido_se_a_api_estiver_fora_do_ar(

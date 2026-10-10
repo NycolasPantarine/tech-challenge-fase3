@@ -146,10 +146,16 @@ class ClienteHttp:
         )
 
     def versao_modelo(self) -> str:
-        """Le a versao do modelo em `GET /health`."""
+        """Le a versao do modelo em `GET /health`.
+
+        A conexao usada aqui e descartada: ela ficaria ociosa enquanto a inferencia local e
+        medida (segundos) e o servidor a encerraria (keep-alive de 5 s no uvicorn). A proxima
+        requisicao abre uma conexao nova, que ai sim e reaproveitada durante a medicao.
+        """
         self._conexao.request("GET", "/health")
         resposta = self._conexao.getresponse()
         corpo = resposta.read()
+        self._conexao.close()
         if resposta.status != 200:
             raise RespostaHttpInvalidaError(f"/health respondeu {resposta.status}.")
         return str(json.loads(corpo)["versao_modelo"])
