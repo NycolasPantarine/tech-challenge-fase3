@@ -6,8 +6,8 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | Bloco | Datas | Etapa | Status |
 |---|---|---|---|
 | 0 | 05/10 | Setup do projeto | concluido |
-| 1 | 06-09/10 | Etapa 1: dataset, modelo base, API, Docker, baseline de latencia | em andamento (1e) |
-| 2 | 10-14/10 | Etapa 2: testes, GitHub Actions, DAG Airflow | pendente |
+| 1 | 05-10/10 | Etapa 1: dataset, modelo base, API, Docker, baseline de latencia | concluido |
+| 2 | 11-14/10 | Etapa 2: testes, GitHub Actions, DAG Airflow | pendente |
 | 3 | 15-18/10 | Etapa 3: Prometheus, Grafana, docker-compose | pendente |
 | 4 | 19-22/10 | Etapa 4: ONNX, benchmark original vs otimizado | pendente |
 | 5 | 23-25/10 | README final, validacao do zero, video STAR | pendente |
@@ -22,7 +22,7 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | 1b | comparacao de modelos, treino, avaliacao e artefato gerado | concluido |
 | 1c | API FastAPI (`/predict`, `/health`) com testes | concluido |
 | 1d | Dockerfile multi-stage, usuario nao-root, HEALTHCHECK, modelo como volume | concluido |
-| 1e | baseline de latencia (P50/P95/P99) e README | em validacao |
+| 1e | baseline de latencia (P50/P95/P99) e README | concluido |
 
 ## Bloco 0 - criterios de aceite (concluido)
 
