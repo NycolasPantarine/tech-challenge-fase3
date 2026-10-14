@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Principio do menor privilegio: os jobs so leem o codigo.
+permissions:
+  contents: read
+
+# Cancela execucoes antigas da mesma branch quando chega um push novo.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Mesma versao do Poetry usada no Dockerfile (evita divergencia CI x imagem).
+  POETRY_VERSION: "2.4.1"
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instala o Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+      - name: Instala as dependencias de desenvolvimento
+        run: poetry install --only dev --no-root
+      - name: ruff check
+        run: poetry run ruff check .
+      - name: ruff format
+        run: poetry run ruff format --check .
+
+  test:
+    name: Testes (pytest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instala o Poetry
+        run: pipx install "poetry==${POETRY_VERSION}"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: poetry
+      - name: Instala o projeto e as dependencias
+        run: poetry install
+      - name: pytest
+        run: poetry run pytest
+
+  build:
+    name: Build da imagem Docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build (sem push)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: triagem-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
