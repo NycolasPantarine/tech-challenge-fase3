@@ -10,8 +10,9 @@ Poetry com `poetry.lock` para dependencias deterministicas. Ruff faz lint e form
 
 ## D-003 - pre-commit com hooks locais para o ruff
 Os hooks de ruff chamam `poetry run ruff`, entao a versao vem do `poetry.lock` e nao
-fica duplicada no `.pre-commit-config.yaml`. Gitleaks ficou de fora por enquanto:
-o hook exige toolchain Go e pode falhar no Windows. Reavaliar no Bloco 2.
+fica duplicada no `.pre-commit-config.yaml`. Gitleaks ficou de fora dos hooks locais:
+o hook exige toolchain Go e pode falhar no Windows. Reavaliado no Bloco 2: a varredura de
+segredos roda no GitHub Actions (Linux), onde nao ha esse problema (ver D-030).
 
 ## D-004 - Dependencias entram por bloco
 Bloco 0 so tem ferramentas de desenvolvimento. scikit-learn entra no 1b; FastAPI e uvicorn
@@ -110,9 +111,15 @@ scikit-learn, numpy e scipy, o recall da regressao logistica foi 0,7146 com 1 th
 0,632 em Linux (Python 3.13). Python, numpy e scipy foram descartados como causa. Os testes
 automatizados verificam comportamento, nao numeros exatos. Fixar as threads no codigo nao
 garantiria numeros identicos entre Windows e Linux (bibliotecas BLAS diferentes) e
-invalidaria os resultados ja registrados, entao ficou fora do 1d. Quando o treino rodar em
-container (DAG do Airflow, bloco 2), o ambiente passa a ser unico e os numeros de
-referencia sao os dele.
+invalidaria os resultados ja registrados, entao ficou fora do 1d. O treino passou a rodar em
+container (DAG do Airflow, D-029) e os numeros de referencia sao os dele: Linux, Python
+3.11.16, F1 de teste 0,628, recall 0,823, limiar 0,415. Esse resultado coincide com o do
+Windows (Python 3.11, mesma maquina) e difere do Linux com Python 3.13 (0,632), o que indica
+que a diferenca acompanha a versao do Python ou a CPU e nao o sistema operacional; as duas
+causas estao misturadas nos dados disponiveis e nao foram separadas. Os valores de D-012 e
+D-018 (F1 0,632; recall 0,823 contra 0,781; pontos de operacao 0,85 e 0,90) vieram da execucao
+Linux com Python 3.13 e nao foram remedidos no container; a tabela do README usa os do
+container.
 
 ## D-021 - Contrato da API
 `POST /predict` recebe `{"texto": ...}` (1 a 10.000 caracteres; o maior laudo do dataset
@@ -203,3 +210,56 @@ Duas armadilhas encontradas na validacao em Windows com Docker Desktop, ambas co
 Hipoteses descartadas por medicao: o numero de threads do BLAS/OpenMP no container nao muda
 a latencia da classificacao (7,6 ms com threads padrao e 8,0 ms com 1 thread, em 8 CPUs), e a
 classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).
+
+## D-029 - Retreino orquestrado: Airflow standalone, staging e portao de qualidade
+- **Logica fora da DAG.** As etapas ficam em `triagem.retreino` (testaveis sem Airflow, 9
+  testes); a DAG so orquestra. O Airflow nao entra no `pyproject.toml` (D-004).
+- **Staging, validacao e publicacao atomica.** O treino grava em
+  `artifacts/.staging/<momento>` (mesmo sistema de arquivos do destino). So depois de validar o
+  modelo ele e publicado com `os.replace`, arquivo por arquivo. O treino original gravava
+  direto no arquivo final: uma falha no meio deixaria o modelo em uso corrompido. A publicacao
+  recusa diretorios fora de `.staging` (nao move arquivos de outro lugar).
+- **Portao de qualidade.** O modelo precisa carregar (inclui a conferencia da versao do
+  scikit-learn, D-023), classificar um laudo de fumaca com probabilidades somando 1 e atingir
+  no teste F1 de urgencia >= 0,55 e recall urgente >= 0,75. O modelo atual tem 0,63 e 0,82;
+  os minimos deixam folga para a variacao numerica (D-020) e barram um treino quebrado.
+  Configuravel no disparo da DAG. Os valores sao uma escolha minha de margem, nao um criterio
+  clinico. Verificado: com `f1_minimo = 0.99`, `validar_modelo` falhou, `publicar_modelo` nao
+  rodou e o modelo em uso permaneceu o mesmo.
+- **Disparo manual** (`schedule=None`) e `max_active_runs=1` (nunca dois treinos juntos).
+  Apenas `ler_dados`, a unica etapa que usa a rede, tem repeticao automatica.
+- **Airflow `standalone`** (um container, SQLite) em `docker-compose.airflow.yml` separado do
+  compose da API. Atende ao desafio e nao e arquitetura de producao; o equivalente em nuvem
+  seria um job batch (D-014). A porta fica presa a `127.0.0.1`. O Airflow avisa que o
+  gerenciador de autenticacao simples nao e recomendado para producao e imprime a senha
+  gerada no log; para uso local foi mantida a autenticacao em vez de desativa-la.
+- **Imagem** `apache/airflow:3.3.2-python3.11` com as dependencias de treino fixadas nas mesmas
+  versoes do `poetry.lock` (`airflow/requirements-treino.txt`). Um teste compara as duas
+  listas: se divergirem, a suite falha, em vez de a API recusar o modelo so em execucao. Codigo
+  e DAGs entram por volume, para retreinar sem rebuild. `DockerOperator` foi descartado porque
+  exigiria o socket do Docker.
+- **Medido** (Docker Desktop, 8 CPUs): execucao completa em 4 min 01 s (`treinar`: 2 min 54 s).
+  A API subiu com o modelo publicado pela DAG e classificou. A DAG tambem foi executada fora do
+  container (Airflow 3.3.2, Python 3.13) durante o desenvolvimento, com o mesmo resultado.
+- **Limite conhecido:** sao dois arquivos (modelo e metadados), trocados um apos o outro; ha
+  uma janela de milissegundos entre as duas trocas. A API le o modelo so ao iniciar (D-023),
+  entao so um restart nesse instante pegaria modelo novo com metadados antigos.
+- **Nao tratado:** staging de modelos reprovados nao e apagado automaticamente (fica para
+  diagnostico) e nao ha rollback para um modelo anterior.
+
+## D-030 - CI no GitHub Actions
+- **`ci.yml`** com tres jobs independentes: `lint` (ruff check e format), `test` (pytest) e
+  `build` (docker build, sem push). **`seguranca.yml`** com Gitleaks sobre o historico completo
+  (`fetch-depth: 0`), em push, pull request e semanalmente.
+- **Python 3.11 apenas**, a versao da imagem; os testes verificam comportamento e nao numeros
+  exatos (D-020), entao uma matriz de versoes custaria mais sem ganho para o projeto.
+- **Poetry 2.4.1**, a mesma versao do Dockerfile. Permissoes minimas (`contents: read`),
+  cancelamento de execucoes antigas e cache do ambiente virtual.
+- **Limite do job `build`:** so prova que a imagem constroi; nao sobe a API, pois sem o modelo
+  ela recusa iniciar (D-026). Um teste de fumaca do container exigiria treinar um modelo no CI
+  (minutos, download do dataset) e foi deixado de fora; o comportamento da API e coberto pelo
+  `pytest`.
+- Dependabot descartado: o enunciado nao pede e abriria pull requests durante um prazo curto.
+- **Validado:** o primeiro push com os workflows passou nos quatro jobs (CI em 1 min 44 s,
+  varredura de segredos em 13 s). A varredura sem achados indica que as regras padrao do
+  Gitleaks nao encontraram segredos no historico; nao e garantia de ausencia.
