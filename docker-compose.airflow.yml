@@ -1,0 +1,29 @@
+# Airflow para o retreino do modelo. Uso: docker compose -f docker-compose.airflow.yml up -d --build
+#
+# Modo `standalone` (SQLite, um unico container): suficiente para o desafio, nao e uma
+# arquitetura de producao (ver D-029). A interface fica acessivel somente a partir desta
+# maquina (127.0.0.1).
+name: triagem-airflow
+
+services:
+  airflow:
+    build:
+      context: ./airflow
+    image: triagem-airflow:dev
+    command: standalone
+    # Em Linux, defina AIRFLOW_UID=$(id -u) para os arquivos gravados nao ficarem como root.
+    user: "${AIRFLOW_UID:-50000}:0"
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      TRIAGEM_DATA_DIR: /opt/airflow/data
+      TRIAGEM_ARTIFACTS_DIR: /opt/airflow/artifacts
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # Sem isso a DAG nasce pausada e a execucao manual fica parada na fila.
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags:ro
+      - ./src:/opt/airflow/src:ro
+      - ./data:/opt/airflow/data
+      # O mesmo diretorio que a API monta somente leitura (D-026).
+      - ./artifacts:/opt/airflow/artifacts

@@ -1,0 +1,4 @@
+# O contexto de build precisa so do requirements-treino.txt.
+dags
+logs
+*.db
