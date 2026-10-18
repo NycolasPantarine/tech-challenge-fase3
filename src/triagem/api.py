@@ -2,8 +2,8 @@
 
 Execucao: uvicorn triagem.api:criar_app --factory
 
-Privacidade: o texto do laudo e dado sensivel e NUNCA e registrado em log; so metodo, rota,
-status, duracao e um identificador da requisicao.
+Privacidade: o texto do laudo e dado sensivel e NUNCA e registrado em log nem em metrica; so
+metodo, rota, status, duracao e um identificador da requisicao.
 """
 
 import logging
@@ -17,10 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from triagem.classificador import Classificador, TextoSemConteudoError
 from triagem.config import Settings
+from triagem.metricas import ROTULO_ROTA_DESCONHECIDA, Metricas
+from triagem.urgencia import Urgencia
 
 logger = logging.getLogger(__name__)
 
 TAMANHO_MAXIMO_TEXTO = 10_000
+ROTA_METRICAS = "/metrics"
 
 
 class LaudoEntrada(BaseModel):
@@ -66,10 +69,12 @@ def criar_app(classificador: Classificador | None = None) -> FastAPI:
     """
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+    metricas = Metricas()
 
     @asynccontextmanager
     async def ciclo_de_vida(app: FastAPI) -> AsyncIterator[None]:
         app.state.classificador = classificador or Classificador.carregar(Settings.from_env())
+        metricas.definir_modelo(app.state.classificador.versao)
         yield
 
     app = FastAPI(
@@ -81,6 +86,7 @@ def criar_app(classificador: Classificador | None = None) -> FastAPI:
         version="0.1.0",
         lifespan=ciclo_de_vida,
     )
+    app.state.metricas = metricas
 
     @app.middleware("http")
     async def registrar_requisicao(
@@ -88,17 +94,37 @@ def criar_app(classificador: Classificador | None = None) -> FastAPI:
     ) -> Response:
         id_requisicao = uuid.uuid4().hex[:12]
         inicio = time.perf_counter()
-        resposta = await call_next(request)
+        try:
+            resposta = await call_next(request)
+        except Exception:
+            _registrar_metricas(request, 500, time.perf_counter() - inicio)
+            raise
+        duracao = time.perf_counter() - inicio
         resposta.headers["X-Request-ID"] = id_requisicao
+        _registrar_metricas(request, resposta.status_code, duracao)
         logger.info(
             "id=%s %s %s -> %s (%.1f ms)",
             id_requisicao,
             request.method,
             request.url.path,
             resposta.status_code,
-            (time.perf_counter() - inicio) * 1000,
+            duracao * 1000,
         )
         return resposta
+
+    def _registrar_metricas(request: Request, status: int, duracao: float) -> None:
+        # Rota pelo template ("/predict"), nunca pelo caminho cru: caminhos aleatorios
+        # criariam uma serie de metricas por requisicao. A propria leitura de /metrics fica
+        # de fora para a coleta do Prometheus nao inflar a vazao.
+        rota = getattr(request.scope.get("route"), "path", None) or ROTULO_ROTA_DESCONHECIDA
+        if rota != ROTA_METRICAS:
+            metricas.registrar_http(request.method, rota, status, duracao)
+
+    @app.get(ROTA_METRICAS, include_in_schema=False)
+    def exportar_metricas() -> Response:
+        """Metricas no formato do Prometheus (coleta por scrape)."""
+        corpo, tipo = metricas.exportar()
+        return Response(content=corpo, media_type=tipo)
 
     @app.get("/health", response_model=SaudeSaida)
     def health(request: Request) -> SaudeSaida:
@@ -109,10 +135,16 @@ def criar_app(classificador: Classificador | None = None) -> FastAPI:
     def predict(entrada: LaudoEntrada, request: Request) -> PredicaoSaida:
         """Classifica a urgencia de um laudo."""
         servico: Classificador = request.app.state.classificador
+        inicio = time.perf_counter()
         try:
             resultado = servico.classificar(entrada.texto)
         except TextoSemConteudoError as erro:
             raise HTTPException(status_code=422, detail=str(erro)) from erro
+        metricas.registrar_predicao(
+            resultado.urgencia.value,
+            resultado.probabilidades_urgencia[Urgencia.URGENTE],
+            time.perf_counter() - inicio,
+        )
         return PredicaoSaida(
             urgencia=resultado.urgencia.value,
             probabilidades_urgencia={
