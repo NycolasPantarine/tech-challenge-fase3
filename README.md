@@ -337,6 +337,9 @@ docker compose up -d --build
 poetry run python -m triagem.carga   # gera trafego por 2 minutos
 ```
 
+O primeiro `up --build` leva alguns minutos (cerca de 5 na validacao em clone limpo, contando o
+download das imagens do Prometheus e do Grafana); os seguintes usam o cache.
+
 | Servico | Endereco | Observacao |
 |---|---|---|
 | API | http://localhost:8000 | porta em `API_PORT` |
