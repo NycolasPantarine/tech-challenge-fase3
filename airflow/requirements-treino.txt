@@ -1,8 +1,16 @@
-# Dependencias de treino da imagem do Airflow. Devem ser IGUAIS as do poetry.lock (grupo main):
-# o teste tests/test_versoes_airflow.py falha se divergirem. A API recusa modelo treinado com
-# outra versao do scikit-learn (D-023).
+# Dependencias de treino da imagem do Airflow. Devem ser IGUAIS as do poetry.lock: o teste
+# tests/test_versoes_airflow.py falha se divergirem. A API recusa modelo treinado com outra
+# versao do scikit-learn (D-023).
+#
+# As tres ultimas linhas sao a pilha de exportacao para ONNX. O protobuf, o flatbuffers e o
+# ml-dtypes ficam SEM versao fixada de proposito: o Airflow ja traz o protobuf (6.33.6, fixado
+# nas restricoes oficiais dele, enquanto o poetry.lock tem 7.x) e forcar outra versao poderia
+# quebrar o proprio Airflow. O portao de paridade da exportacao garante o resultado.
 scikit-learn==1.9.1
 numpy==2.4.6
 scipy==1.17.1
 joblib==1.6.0
 threadpoolctl==3.7.0
+onnx==1.23.2
+onnxruntime==1.31.0
+skl2onnx==1.20.0

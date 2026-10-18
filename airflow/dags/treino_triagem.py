@@ -1,10 +1,13 @@
 """DAG de retreino do classificador de urgencia.
 
-ler_dados -> treinar -> validar_modelo -> publicar_modelo
+ler_dados -> treinar -> exportar_onnx -> validar_modelo -> publicar_modelo
 
 - ler_dados: baixa (se preciso) e valida o dataset (SHA-256) e confere os CSVs.
 - treinar: compara candidatos, escolhe o melhor e grava em um staging.
-- validar_modelo: portao de qualidade (carrega, classifica e confere as metricas minimas).
+- exportar_onnx: converte o modelo para ONNX e so grava se ele decidir igual ao original
+  (portao de paridade em milhares de laudos do teste); a API usa o ONNX por padrao.
+- validar_modelo: portao de qualidade (carrega os dois modelos, classifica e confere as
+  metricas minimas).
 - publicar_modelo: troca atomicamente o modelo que a API le. Se a validacao falhar, o modelo
   em uso permanece intacto.
 
@@ -51,6 +54,18 @@ def treino_triagem():
         return str(treinar_em_staging(settings, treino, teste))
 
     @task
+    def exportar_onnx(staging_dir: str) -> str:
+        from pathlib import Path
+
+        from triagem.config import Settings
+        from triagem.retreino import carregar_dados, exportar_onnx_em_staging
+
+        settings = Settings.from_env()
+        _, teste = carregar_dados(settings)
+        exportar_onnx_em_staging(settings, Path(staging_dir), teste)
+        return staging_dir
+
+    @task
     def validar_modelo(staging_dir: str, params: dict | None = None) -> dict:
         from pathlib import Path
 
@@ -75,7 +90,7 @@ def treino_triagem():
         promover_staging(Settings.from_env(), Path(staging_dir))
         return validacao["versao"]
 
-    staging = treinar(ler_dados())
+    staging = exportar_onnx(treinar(ler_dados()))
     publicar_modelo(staging, validar_modelo(staging))
 
 
