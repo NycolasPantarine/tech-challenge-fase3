@@ -8,7 +8,7 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | 0 | 05/10 | Setup do projeto | concluido |
 | 1 | 05-10/10 | Etapa 1: dataset, modelo base, API, Docker, baseline de latencia | concluido |
 | 2 | 14/10 | Etapa 2: testes, GitHub Actions, DAG Airflow | concluido |
-| 3 | 15-18/10 | Etapa 3: Prometheus, Grafana, docker-compose | pendente |
+| 3 | 15-18/10 | Etapa 3: Prometheus, Grafana, docker-compose | concluido |
 | 4 | 19-22/10 | Etapa 4: ONNX, benchmark original vs otimizado | pendente |
 | 5 | 23-25/10 | README final, validacao do zero, video STAR | pendente |
 | - | 26/10 | Reserva | - |
@@ -30,6 +30,15 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 |---|---|---|
 | 2a | workflows do GitHub Actions: lint, testes, build da imagem e varredura de segredos | concluido |
 | 2b | DAG do Airflow (ler dados, treinar, validar, publicar) com portao de qualidade | concluido |
+
+## Sub-blocos do Bloco 3
+
+| Sub-bloco | Entrega | Status |
+|---|---|---|
+| 3a | metricas Prometheus na API (`/metrics`) com testes | concluido |
+| 3b | `docker-compose.yml` com API e Prometheus, gerador de carga | concluido |
+| 3c | Grafana provisionado, dashboard de 7 paineis e print | concluido |
+| 3d | documentacao: README, D-031 e D-032, roadmap | concluido |
 
 ## Bloco 0 - criterios de aceite (concluido)
 

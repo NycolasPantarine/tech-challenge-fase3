@@ -7,9 +7,9 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. O monitoramento (Prometheus e Grafana), a otimizacao do modelo (ONNX) e a
-> decisao de arquitetura em nuvem entram nos proximos blocos. Progresso em
-> `docs/roadmap.md`; decisoes e justificativas em `docs/decisoes_tecnicas.md`.
+> Em construcao. A otimizacao do modelo (ONNX) e a decisao de arquitetura em nuvem entram
+> nos proximos blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
+> `docs/decisoes_tecnicas.md`.
 
 ## Problema
 
@@ -122,6 +122,9 @@ Os valores acima ilustram o formato. Entrada invalida (vazia, acima do limite, s
 termos uteis) retorna `422`.
 
 **`GET /health`**: confirma que o servico esta no ar e informa a versao do modelo.
+
+**`GET /metrics`**: metricas no formato do Prometheus (ver "Monitoramento"). Fica fora da
+documentacao Swagger.
 
 > **Privacidade:** laudos sao dados sensiveis. O conteudo do texto **nunca** e registrado
 > em log; so metodo, rota, status, duracao e um identificador da requisicao
@@ -250,6 +253,79 @@ diagnostico):
 > recomendado para producao. Como sao dois arquivos (modelo e metadados), ha uma janela de
 > milissegundos entre as duas trocas; a API so le o modelo ao iniciar, entao o risco se limita
 > a um restart exatamente nesse instante. Detalhes em D-029.
+
+## Monitoramento (Prometheus e Grafana)
+
+O `docker-compose.yml` sobe a API, o **Prometheus** (coleta `/metrics` a cada 5 s) e o
+**Grafana**, que ja abre num dashboard provisionado a partir de arquivos versionados
+(`monitoring/grafana/dashboards/triagem.json`): nao ha nada para configurar na interface.
+
+```powershell
+poetry run python -m triagem.treino   # se ainda nao existir artifacts/
+cp .env.example .env
+```
+
+Edite o `.env` e preencha `GRAFANA_ADMIN_PASSWORD` com a senha que preferir: ela **nao tem
+valor padrao** e, sem ela, o compose recusa subir. Depois:
+
+```powershell
+docker compose up -d --build
+poetry run python -m triagem.carga   # gera trafego por 2 minutos
+```
+
+| Servico | Endereco | Observacao |
+|---|---|---|
+| API | http://localhost:8000 | porta em `API_PORT` |
+| Prometheus | http://localhost:9090 | `PROMETHEUS_PORT`; em *Status > Target health* o alvo `triagem-api` deve estar UP |
+| Grafana | http://localhost:3000 | `GRAFANA_PORT`; usuario `admin`, senha do `.env` |
+
+Todas as portas ficam presas a `127.0.0.1`. Se alguma ja estiver em uso na sua maquina,
+mude-a no `.env` (e use a mesma porta no gerador: `--url http://localhost:<API_PORT>`). Para
+desligar: `docker compose down` (acrescente `-v` para apagar tambem os dados do Prometheus e
+do Grafana).
+
+Dashboard com o gerador de carga rodando (10 req/s, 10% de requisicoes invalidas):
+
+![Dashboard do Grafana](docs/img/grafana_dashboard.png)
+
+| Painel | O que mostra | Metrica |
+|---|---|---|
+| Modelo em uso | versao carregada pela API | `triagem_modelo_info` |
+| Vazao de `/predict` por status | req/s por codigo HTTP (200, 422, ...) | `http_requests_total` |
+| Taxa de erro | fracao de respostas 4xx e 5xx | `http_requests_total` |
+| Latencia HTTP (P50, P95, P99) | tempo de resposta visto pelo servidor | `http_request_duration_seconds` |
+| Latencia da inferencia (P50, P95) | so a classificacao, sem a camada HTTP; o que o ONNX deve reduzir | `triagem_inferencia_duration_seconds` |
+| Predicoes por nivel de urgencia | mistura `normal` / `atencao` / `urgente` | `triagem_predicoes_total` |
+| Probabilidade de urgencia | media, P50 e P90 da probabilidade de `urgente` (sinal de drift) | `triagem_probabilidade_urgente` |
+
+O gerador (`python -m triagem.carga`) usa laudos reais do conjunto de teste e uma fracao de
+entradas invalidas, para o painel de erros mostrar algo alem de zero. Parametros:
+`--duracao`, `--taxa`, `--invalidas`, `--url`.
+
+**Privacidade e cardinalidade:** nenhuma metrica recebe o texto do laudo e os rotulos tem
+poucos valores possiveis (a rota vai pelo *template*, nunca pelo caminho cru). Ha testes para
+os dois pontos. Detalhes em D-031 e D-032.
+
+**Validado:** a stack subiu no Docker Desktop com Prometheus v3.13.4 e Grafana 12.4.13; o
+alvo ficou UP, e com 2.400 requisicoes do gerador os 7 paineis mostraram dados. As consultas
+do dashboard tambem foram executadas contra um Prometheus real, e um teste da suite falha se
+o dashboard citar uma metrica que a API nao expoe.
+
+> **Limitacoes assumidas:**
+> - Os percentis do Prometheus sao **estimativas** por interpolacao entre faixas (*buckets*)
+>   do histograma; nao coincidem exatamente com os do benchmark (D-028), que mede no cliente,
+>   requisicao a requisicao.
+> - As primeiras requisicoes depois de um periodo ocioso sao mais lentas (aquecimento): no
+>   inicio de cada execucao do gerador o P99 chegou a ~800 ms antes de cair para poucas
+>   dezenas de ms.
+> - **Drift:** em producao nao ha rotulos, entao o painel de probabilidade e um sinal
+>   *indireto*: um deslocamento persistente sugere mudanca nos dados ou no modelo, mas nao a
+>   prova nem mede a perda de acuracia.
+> - As metricas pressupoem **uma unica worker** do uvicorn (a configuracao da imagem). Com
+>   varias, seria preciso o modo multiprocesso do `prometheus_client`.
+> - **Sem alertas:** nao fazem parte do escopo do desafio; o dashboard e para observacao.
+> - O Grafana usa a senha do `.env`; o Prometheus nao tem autenticacao e so e acessivel
+>   a partir da propria maquina.
 
 ## Ambiente de desenvolvimento
 

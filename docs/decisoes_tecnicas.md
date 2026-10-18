@@ -263,3 +263,57 @@ classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).
 - **Validado:** o primeiro push com os workflows passou nos quatro jobs (CI em 1 min 44 s,
   varredura de segredos em 13 s). A varredura sem achados indica que as regras padrao do
   Gitleaks nao encontraram segredos no historico; nao e garantia de ausencia.
+
+## D-031 - Metricas Prometheus na API
+- **`prometheus-client`** (entrou no bloco 3, como previsto em D-004). Metricas: contador
+  `http_requests_total{method,route,status}`, histograma `http_request_duration_seconds{route}`,
+  histograma `triagem_inferencia_duration_seconds` (so a classificacao), contador
+  `triagem_predicoes_total{urgencia}`, histograma `triagem_probabilidade_urgente` e gauge
+  `triagem_modelo_info{versao}`.
+- **Rota pelo template, nao pelo caminho cru.** A rota vem do roteamento do FastAPI
+  (`/predict`); caminhos desconhecidos viram `desconhecida`. Usar o caminho cru criaria uma
+  serie por URL e estouraria a memoria do Prometheus (explosao de cardinalidade). Os demais
+  rotulos tem poucos valores (metodo, status, tres niveis de urgencia). Teste automatizado.
+- **Privacidade (D-022):** nenhuma metrica recebe o texto do laudo. Teste automatizado.
+- **`/metrics` fora da vazao e da documentacao.** A leitura feita pelo proprio Prometheus nao
+  entra em `http_requests_total` (inflaria a vazao) e a rota nao aparece no Swagger.
+- **Erro interno conta como 500.** O middleware registra a requisicao mesmo se o handler
+  levantar excecao e a propaga. Teste com um classificador que falha de proposito.
+- **Registro por aplicacao** (`CollectorRegistry` proprio) em vez do global: varias aplicacoes
+  no mesmo processo (testes) nao colidem. `disable_created_metrics()` remove as series
+  `*_created`, que o dashboard nao usa e dobrariam o numero de series.
+- **Buckets** ajustados a faixa em que a API opera (5 ms a 2,5 s no HTTP; 1 ms a 1 s na
+  inferencia, que fica perto de 10 ms), para os percentis terem resolucao onde importa.
+- **Limites:** percentis do Prometheus sao estimativas por interpolacao entre buckets; assume
+  uma unica worker do uvicorn; o sinal de drift (probabilidade de `urgente`) e indireto, pois
+  nao ha rotulos em producao.
+
+## D-032 - Stack de monitoramento: compose, Prometheus, Grafana e carga
+- **Docker Compose** (`docker-compose.yml`) com `api`, `prometheus` e `grafana`. O Prometheus
+  so inicia depois que a API esta saudavel (`depends_on` com `service_healthy`, usando o
+  `HEALTHCHECK` da imagem). O modelo continua montado como volume somente leitura (D-026).
+- **Portas so em `127.0.0.1`** e configuraveis pelo `.env` (`API_PORT`, `PROMETHEUS_PORT`,
+  `GRAFANA_PORT`): na maquina de desenvolvimento 8000 e 3000 ja estavam ocupadas por outros
+  containers, e o compose nao deve expor nada na rede local. Um teste confere que toda porta
+  publicada comeca por `127.0.0.1`.
+- **Senha do Grafana sem valor padrao.** `GRAFANA_ADMIN_PASSWORD` e obrigatoria
+  (`${VAR:?...}`): sem ela o compose recusa subir, em vez de usar `admin/admin`. O custo e um
+  passo a mais para quem clona o repositorio, documentado no README. Cadastro de usuarios e
+  telemetria do Grafana desativados.
+- **Provisionamento versionado.** Fonte de dados (uid fixo `prometheus`) e dashboard sao
+  arquivos em `monitoring/grafana/`, montados somente leitura: o ambiente sobe pronto e
+  reproduzivel, sem configuracao manual. Os 7 paineis atendem ao minimo de 3 do desafio e
+  cobrem trafego, erros, latencia (HTTP e inferencia), mistura de urgencias, drift indireto e
+  versao do modelo.
+- **Testes de consistencia** (`tests/test_dashboard.py`): toda metrica citada numa consulta do
+  dashboard existe no `/metrics` da API; as consultas usam o uid da fonte de dados
+  provisionada; o Prometheus coleta `api:8000`. Renomear uma metrica sem atualizar o JSON
+  deixaria um painel vazio sem erro algum; agora a suite falha.
+- **Gerador de carga** (`python -m triagem.carga`): taxa constante e sequencial, laudos reais
+  do conjunto de teste e 10% de entradas invalidas (texto vazio ou sem conteudo, ambos 422).
+  Serve para gerar trafego visivel, nao para medir capacidade (isso e do benchmark, D-028).
+- **Versoes:** Prometheus v3.13.4 e Grafana 12.4.13 (tags fixas, sem `latest`), ambas
+  baixadas e executadas com sucesso no Docker Desktop. Dados do Prometheus guardados por 7 dias
+  em volume nomeado.
+- **Nao tratado:** alertas, autenticacao no Prometheus, coleta de metricas do host/container e
+  varias instancias da API.
