@@ -1,5 +1,5 @@
-# Stack de monitoramento: API de triagem + Prometheus (coleta e armazena as metricas).
-# Uso: docker compose up -d --build
+# Stack de monitoramento: API de triagem + Prometheus (coleta e armazena as metricas) +
+# Grafana (dashboard). Uso: docker compose up -d --build
 #
 # Pre-requisito: o modelo treinado em ./artifacts (poetry run python -m triagem.treino ou
 # DAG do Airflow). Sem ele a API nao sobe, de proposito (D-026).
@@ -7,6 +7,9 @@
 # Todas as portas ficam publicadas somente em 127.0.0.1: nada fica exposto na rede local.
 # Para mudar uma porta que ja esteja em uso, defina a variavel no arquivo .env
 # (veja .env.example).
+#
+# A senha do Grafana NAO tem valor padrao: defina GRAFANA_ADMIN_PASSWORD no .env, ou o
+# compose recusa subir. Usuario: admin.
 name: triagem
 
 services:
@@ -36,5 +39,25 @@ services:
         # A imagem da API define HEALTHCHECK: o Prometheus so sobe com o modelo carregado.
         condition: service_healthy
 
+  grafana:
+    image: grafana/grafana:12.4.13
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Defina GRAFANA_ADMIN_PASSWORD no arquivo .env (veja .env.example)}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      # Abre direto no dashboard da triagem.
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/triagem.json
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
 volumes:
   prometheus-data:
+  grafana-data:

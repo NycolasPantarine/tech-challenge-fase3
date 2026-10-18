@@ -1,0 +1,10 @@
+# Diz ao Grafana para carregar os dashboards em JSON da pasta montada pelo compose.
+apiVersion: 1
+
+providers:
+  - name: triagem
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/dashboards

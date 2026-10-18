@@ -1,0 +1,16 @@
+# Fonte de dados criada automaticamente na subida do Grafana. O uid fixo e o que os
+# paineis do dashboard referenciam (monitoring/grafana/dashboards/triagem.json).
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    # Nome do servico no docker-compose, porta interna do Prometheus.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Igual ao scrape_interval de monitoring/prometheus.yml.
+      timeInterval: 5s
