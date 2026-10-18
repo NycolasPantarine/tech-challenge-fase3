@@ -1,0 +1,127 @@
+{
+  "rotulo": "onnx",
+  "gerado_em": "2026-10-18T22:15:01+00:00",
+  "parametros": {
+    "amostras": 200,
+    "aquecimento": 100,
+    "medicoes": 1000,
+    "semente": 42,
+    "repeticoes": 5
+  },
+  "modelo": {
+    "versao_local": "naive_bayes_calibrado@2026-10-15T00:12:36+00:00+onnx",
+    "versao_http": "naive_bayes_calibrado@2026-10-15T00:12:36+00:00+onnx"
+  },
+  "ambiente": {
+    "python": "3.11.9",
+    "plataforma": "Windows-10-10.0.26200-SP0",
+    "cpus": 8,
+    "scikit_learn": "1.9.1",
+    "numpy": "2.4.6",
+    "onnxruntime": "1.31.0"
+  },
+  "resultados": {
+    "inferencia": {
+      "medicoes": 1000,
+      "media_ms": 0.897,
+      "p50_ms": 0.792,
+      "p95_ms": 1.543,
+      "p99_ms": 2.085,
+      "maximo_ms": 2.803
+    },
+    "http": {
+      "medicoes": 1000,
+      "media_ms": 6.127,
+      "p50_ms": 5.445,
+      "p95_ms": 10.224,
+      "p99_ms": 13.564,
+      "maximo_ms": 38.583
+    }
+  },
+  "rodadas": {
+    "inferencia": [
+      {
+        "medicoes": 1000,
+        "media_ms": 0.939,
+        "p50_ms": 0.801,
+        "p95_ms": 1.6,
+        "p99_ms": 2.508,
+        "maximo_ms": 9.036
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 0.834,
+        "p50_ms": 0.784,
+        "p95_ms": 1.212,
+        "p99_ms": 1.663,
+        "maximo_ms": 2.465
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 0.844,
+        "p50_ms": 0.783,
+        "p95_ms": 1.241,
+        "p99_ms": 1.649,
+        "maximo_ms": 2.621
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 0.897,
+        "p50_ms": 0.792,
+        "p95_ms": 1.543,
+        "p99_ms": 2.085,
+        "maximo_ms": 2.803
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 0.979,
+        "p50_ms": 0.848,
+        "p95_ms": 1.777,
+        "p99_ms": 2.693,
+        "maximo_ms": 4.429
+      }
+    ],
+    "http": [
+      {
+        "medicoes": 1000,
+        "media_ms": 6.092,
+        "p50_ms": 5.445,
+        "p95_ms": 9.964,
+        "p99_ms": 13.269,
+        "maximo_ms": 58.377
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 6.643,
+        "p50_ms": 5.882,
+        "p95_ms": 11.404,
+        "p99_ms": 17.917,
+        "maximo_ms": 38.583
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 6.127,
+        "p50_ms": 5.388,
+        "p95_ms": 10.224,
+        "p99_ms": 12.176,
+        "maximo_ms": 58.404
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 5.442,
+        "p50_ms": 4.957,
+        "p95_ms": 9.218,
+        "p99_ms": 13.564,
+        "maximo_ms": 17.62
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 6.306,
+        "p50_ms": 5.488,
+        "p95_ms": 10.532,
+        "p99_ms": 14.122,
+        "maximo_ms": 35.897
+      }
+    ]
+  }
+}

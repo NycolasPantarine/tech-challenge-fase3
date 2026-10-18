@@ -1,39 +1,127 @@
 {
   "rotulo": "sklearn",
-  "gerado_em": "2026-10-10T23:42:54+00:00",
+  "gerado_em": "2026-10-18T22:17:22+00:00",
   "parametros": {
     "amostras": 200,
     "aquecimento": 100,
     "medicoes": 1000,
-    "semente": 42
+    "semente": 42,
+    "repeticoes": 5
   },
   "modelo": {
-    "versao_local": "naive_bayes_calibrado@2026-10-05T23:49:20+00:00",
-    "versao_http": "naive_bayes_calibrado@2026-10-05T23:49:20+00:00"
+    "versao_local": "naive_bayes_calibrado@2026-10-15T00:12:36+00:00",
+    "versao_http": "naive_bayes_calibrado@2026-10-15T00:12:36+00:00"
   },
   "ambiente": {
     "python": "3.11.9",
     "plataforma": "Windows-10-10.0.26200-SP0",
     "cpus": 8,
     "scikit_learn": "1.9.1",
-    "numpy": "2.4.6"
+    "numpy": "2.4.6",
+    "onnxruntime": "1.31.0"
   },
   "resultados": {
     "inferencia": {
       "medicoes": 1000,
-      "media_ms": 10.942,
-      "p50_ms": 9.789,
-      "p95_ms": 17.512,
-      "p99_ms": 23.128,
-      "maximo_ms": 43.335
+      "media_ms": 7.069,
+      "p50_ms": 6.348,
+      "p95_ms": 11.778,
+      "p99_ms": 16.007,
+      "maximo_ms": 25.343
     },
     "http": {
       "medicoes": 1000,
-      "media_ms": 14.207,
-      "p50_ms": 12.764,
-      "p95_ms": 24.539,
-      "p99_ms": 32.866,
-      "maximo_ms": 44.842
+      "media_ms": 11.185,
+      "p50_ms": 9.888,
+      "p95_ms": 17.521,
+      "p99_ms": 24.356,
+      "maximo_ms": 32.553
     }
+  },
+  "rodadas": {
+    "inferencia": [
+      {
+        "medicoes": 1000,
+        "media_ms": 7.069,
+        "p50_ms": 6.348,
+        "p95_ms": 11.778,
+        "p99_ms": 16.007,
+        "maximo_ms": 25.343
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 6.859,
+        "p50_ms": 6.147,
+        "p95_ms": 11.45,
+        "p99_ms": 15.946,
+        "maximo_ms": 21.757
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 8.315,
+        "p50_ms": 6.656,
+        "p95_ms": 15.654,
+        "p99_ms": 21.991,
+        "maximo_ms": 47.194
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 8.64,
+        "p50_ms": 6.942,
+        "p95_ms": 17.099,
+        "p99_ms": 23.348,
+        "maximo_ms": 37.983
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 6.526,
+        "p50_ms": 6.038,
+        "p95_ms": 9.089,
+        "p99_ms": 13.19,
+        "maximo_ms": 16.92
+      }
+    ],
+    "http": [
+      {
+        "medicoes": 1000,
+        "media_ms": 11.185,
+        "p50_ms": 9.888,
+        "p95_ms": 17.521,
+        "p99_ms": 24.356,
+        "maximo_ms": 32.553
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 11.365,
+        "p50_ms": 10.036,
+        "p95_ms": 18.353,
+        "p99_ms": 24.886,
+        "maximo_ms": 28.833
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 10.632,
+        "p50_ms": 9.755,
+        "p95_ms": 16.58,
+        "p99_ms": 21.056,
+        "maximo_ms": 30.726
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 11.645,
+        "p50_ms": 10.117,
+        "p95_ms": 18.766,
+        "p99_ms": 28.096,
+        "maximo_ms": 44.498
+      },
+      {
+        "medicoes": 1000,
+        "media_ms": 10.572,
+        "p50_ms": 9.4,
+        "p95_ms": 17.507,
+        "p99_ms": 23.204,
+        "maximo_ms": 38.915
+      }
+    ]
   }
 }
