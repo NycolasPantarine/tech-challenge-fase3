@@ -159,6 +159,17 @@ def test_cliente_http_falha_com_status_diferente_de_200(servidor: _ServidorFalso
         cliente.fechar()
 
 
+def test_cliente_http_predizer_devolve_o_status_sem_levantar_erro(
+    servidor: _ServidorFalso,
+) -> None:
+    servidor.status_predict = 422
+    cliente = ClienteHttp(_url(servidor))
+    try:
+        assert cliente.predizer("texto") == 422
+    finally:
+        cliente.fechar()
+
+
 class _SoqueteGravador:
     """Envolve um socket real e registra cada `sendall` e cada `setsockopt`."""
 

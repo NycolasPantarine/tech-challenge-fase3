@@ -211,10 +211,15 @@ class ClienteHttp:
             raise RespostaHttpInvalidaError(f"/health respondeu {status}.")
         return str(json.loads(corpo)["versao_modelo"])
 
-    def classificar(self, texto: str) -> None:
-        """Envia `POST /predict` e le a resposta inteira (descartando o conteudo)."""
+    def predizer(self, texto: str) -> int:
+        """Envia `POST /predict`, le a resposta inteira e devolve so o status HTTP."""
         corpo = json.dumps({"texto": texto}).encode("utf-8")
         status, _ = self._requisitar("POST", "/predict", corpo)
+        return status
+
+    def classificar(self, texto: str) -> None:
+        """Como `predizer`, mas falha se o status nao for 200."""
+        status = self.predizer(texto)
         if status != 200:
             raise RespostaHttpInvalidaError(f"/predict respondeu {status}.")
 

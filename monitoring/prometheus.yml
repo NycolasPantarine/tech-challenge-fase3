@@ -1,0 +1,13 @@
+# Configuracao do Prometheus (ver docker-compose.yml). Dentro da rede do compose a API e
+# alcancada pelo nome do servico, `api`, na porta interna 8000.
+global:
+  # Intervalo curto para o dashboard reagir rapido numa demonstracao. Em producao, 15 s a
+  # 60 s bastam e reduzem o armazenamento.
+  scrape_interval: 5s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: triagem-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["api:8000"]

@@ -1,0 +1,40 @@
+# Stack de monitoramento: API de triagem + Prometheus (coleta e armazena as metricas).
+# Uso: docker compose up -d --build
+#
+# Pre-requisito: o modelo treinado em ./artifacts (poetry run python -m triagem.treino ou
+# DAG do Airflow). Sem ele a API nao sobe, de proposito (D-026).
+#
+# Todas as portas ficam publicadas somente em 127.0.0.1: nada fica exposto na rede local.
+# Para mudar uma porta que ja esteja em uso, defina a variavel no arquivo .env
+# (veja .env.example).
+name: triagem
+
+services:
+  api:
+    build:
+      context: .
+    image: triagem-api:dev
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    volumes:
+      # Somente leitura: a API nunca altera o modelo (D-026).
+      - ./artifacts:/app/artifacts:ro
+
+  prometheus:
+    image: prom/prometheus:v3.13.4
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      api:
+        # A imagem da API define HEALTHCHECK: o Prometheus so sobe com o modelo carregado.
+        condition: service_healthy
+
+volumes:
+  prometheus-data:
