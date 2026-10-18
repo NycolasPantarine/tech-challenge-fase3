@@ -17,6 +17,7 @@ from triagem.benchmark import (
     RespostaHttpInvalidaError,
     amostrar_textos,
     calcular_estatisticas,
+    consolidar_repeticoes,
     executar,
     formatar_tabela,
     ler_resposta,
@@ -245,6 +246,49 @@ def test_ler_resposta_falha_se_o_servidor_encerrar_a_conexao() -> None:
             ler_resposta(cliente)
 
 
+def _estatisticas(p50: float) -> Estatisticas:
+    return Estatisticas(
+        medicoes=10, media_ms=p50, p50_ms=p50, p95_ms=p50 * 2, p99_ms=p50 * 3, maximo_ms=p50 * 9
+    )
+
+
+def test_consolidar_repeticoes_usa_a_mediana_e_resiste_a_um_pico() -> None:
+    series = [_estatisticas(5.0), _estatisticas(5.2), _estatisticas(80.0)]  # a ultima e um pico
+
+    consolidado = consolidar_repeticoes(series)
+
+    assert consolidado.p50_ms == 5.2
+    assert consolidado.p99_ms == 15.6
+    assert consolidado.medicoes == 10
+
+
+def test_consolidar_repeticoes_rejeita_lista_vazia() -> None:
+    with pytest.raises(ValueError):
+        consolidar_repeticoes([])
+
+
+def test_executar_com_repeticoes_guarda_as_rodadas_e_consolida_pela_mediana(
+    settings_com_modelo: Settings,
+) -> None:
+    classificador = Classificador.carregar(settings_com_modelo)
+    parametros = Parametros(amostras=3, aquecimento=1, medicoes=4, semente=1, repeticoes=3)
+
+    relatorio = executar(classificador, TEXTOS, None, "teste", parametros)
+
+    assert relatorio["parametros"]["repeticoes"] == 3
+    rodadas = relatorio["rodadas"]["inferencia"]
+    assert len(rodadas) == 3
+    medianas = sorted(r["p50_ms"] for r in rodadas)[1]
+    assert relatorio["resultados"]["inferencia"]["p50_ms"] == medianas
+
+
+def test_executar_rejeita_repeticoes_invalidas(settings_com_modelo: Settings) -> None:
+    classificador = Classificador.carregar(settings_com_modelo)
+
+    with pytest.raises(ValueError, match="repeticoes"):
+        executar(classificador, TEXTOS, None, "teste", Parametros(repeticoes=0))
+
+
 def test_executar_so_inferencia(settings_com_modelo: Settings) -> None:
     classificador = Classificador.carregar(settings_com_modelo)
     parametros = Parametros(amostras=3, aquecimento=2, medicoes=5, semente=1)
@@ -257,7 +301,9 @@ def test_executar_so_inferencia(settings_com_modelo: Settings) -> None:
         "aquecimento": 2,
         "medicoes": 5,
         "semente": 1,
+        "repeticoes": 1,
     }
+    assert "rodadas" not in relatorio  # so aparece com mais de uma repeticao
     assert set(relatorio["resultados"]) == {"inferencia"}
     assert relatorio["resultados"]["inferencia"]["medicoes"] == 5
     assert relatorio["modelo"] == {"versao_local": classificador.versao, "versao_http": None}

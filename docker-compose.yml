@@ -1,8 +1,12 @@
 # Stack de monitoramento: API de triagem + Prometheus (coleta e armazena as metricas) +
 # Grafana (dashboard). Uso: docker compose up -d --build
 #
-# Pre-requisito: o modelo treinado em ./artifacts (poetry run python -m triagem.treino ou
-# DAG do Airflow). Sem ele a API nao sobe, de proposito (D-026).
+# Pre-requisito: o modelo treinado em ./artifacts, mais o ONNX (poetry run python -m
+# triagem.treino e depois poetry run python -m triagem.onnx_export, ou a DAG do Airflow, que
+# faz os dois). Sem eles a API nao sobe, de proposito (D-026).
+#
+# Motor de inferencia da API: ONNX por padrao (mais rapido, ver README). Para usar o modelo
+# original do scikit-learn: TRIAGEM_BACKEND=sklearn docker compose up -d api
 #
 # Todas as portas ficam publicadas somente em 127.0.0.1: nada fica exposto na rede local.
 # Para mudar uma porta que ja esteja em uso, defina a variavel no arquivo .env
@@ -17,6 +21,8 @@ services:
     build:
       context: .
     image: triagem-api:dev
+    environment:
+      TRIAGEM_BACKEND: ${TRIAGEM_BACKEND:-onnx}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     volumes:

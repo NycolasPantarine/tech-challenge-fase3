@@ -10,12 +10,17 @@ As requisicoes sao sequenciais: o objetivo e a latencia de uma requisicao isolad
 throughput. As primeiras chamadas (aquecimento) sao descartadas porque a primeira costuma ser
 muito mais lenta. Os textos sao laudos reais do conjunto de teste, amostrados com semente fixa.
 O resultado depende da maquina; ele serve para comparar o modelo original com o otimizado
-(Etapa 4) **na mesma maquina**, nao como valor absoluto de producao.
+(Etapa 4) **na mesma maquina**, nao como valor absoluto de producao. Com `--repeticoes N` a
+medicao inteira e repetida N vezes e o resultado e a mediana de cada estatistica: uma unica
+rodada no Windows oscila muito (picos de dezenas de ms por causa do sistema), e a mediana de
+varias rodadas resiste a esses picos sem descartar nenhuma delas (todas ficam no JSON).
 
-Uso: python -m triagem.benchmark [--url http://localhost:8010]
+Uso: python -m triagem.benchmark [--url http://localhost:8010] [--repeticoes 5]
+O motor medido localmente vem de TRIAGEM_BACKEND (sklearn ou onnx).
 """
 
 import argparse
+import importlib.metadata
 import json
 import logging
 import os
@@ -44,6 +49,7 @@ ARQUIVO_TESTE = "medical_tc_test.csv"
 AMOSTRAS_PADRAO = 200
 AQUECIMENTO_PADRAO = 100
 MEDICOES_PADRAO = 1000
+REPETICOES_PADRAO = 1
 SEMENTE_PADRAO = 42
 TIMEOUT_HTTP_SEGUNDOS = 10.0
 ROTULO_PADRAO = "sklearn"
@@ -61,6 +67,7 @@ class Parametros:
     aquecimento: int = AQUECIMENTO_PADRAO
     medicoes: int = MEDICOES_PADRAO
     semente: int = SEMENTE_PADRAO
+    repeticoes: int = REPETICOES_PADRAO
 
 
 @dataclass(frozen=True)
@@ -92,6 +99,28 @@ def calcular_estatisticas(latencias_ms: Sequence[float]) -> Estatisticas:
         p95_ms=round(float(p95), 3),
         p99_ms=round(float(p99), 3),
         maximo_ms=round(float(valores.max()), 3),
+    )
+
+
+def consolidar_repeticoes(series: Sequence[Estatisticas]) -> Estatisticas:
+    """Resume varias rodadas pela mediana de cada estatistica.
+
+    Raises:
+        ValueError: se nao houver rodadas.
+    """
+    if not series:
+        raise ValueError("Nenhuma rodada para consolidar.")
+
+    def mediana(campo: str) -> float:
+        return round(float(np.median([getattr(e, campo) for e in series])), 3)
+
+    return Estatisticas(
+        medicoes=series[0].medicoes,
+        media_ms=mediana("media_ms"),
+        p50_ms=mediana("p50_ms"),
+        p95_ms=mediana("p95_ms"),
+        p99_ms=mediana("p99_ms"),
+        maximo_ms=mediana("maximo_ms"),
     )
 
 
@@ -230,15 +259,26 @@ class ClienteHttp:
             self._soquete = None
 
 
+def _versao_onnxruntime() -> str | None:
+    try:
+        return importlib.metadata.version("onnxruntime")
+    except importlib.metadata.PackageNotFoundError:
+        return None
+
+
 def montar_relatorio(
     rotulo: str,
     parametros: Parametros,
     versao_modelo: str,
     resultados: dict[str, Estatisticas],
     versao_modelo_http: str | None = None,
+    rodadas: dict[str, list[Estatisticas]] | None = None,
 ) -> dict[str, Any]:
-    """Monta o relatorio JSON com resultados, parametros e dados do ambiente."""
-    return {
+    """Monta o relatorio JSON com resultados, parametros e dados do ambiente.
+
+    `rodadas` (opcional) guarda cada repeticao individual; `resultados` e a mediana delas.
+    """
+    relatorio = {
         "rotulo": rotulo,
         "gerado_em": datetime.now(UTC).isoformat(timespec="seconds"),
         "parametros": asdict(parametros),
@@ -249,9 +289,13 @@ def montar_relatorio(
             "cpus": os.cpu_count(),
             "scikit_learn": sklearn.__version__,
             "numpy": np.__version__,
+            "onnxruntime": _versao_onnxruntime(),
         },
         "resultados": {nome: asdict(estatisticas) for nome, estatisticas in resultados.items()},
     }
+    if rodadas and parametros.repeticoes > 1:
+        relatorio["rodadas"] = {nome: [asdict(e) for e in lista] for nome, lista in rodadas.items()}
+    return relatorio
 
 
 def formatar_tabela(resultados: dict[str, Estatisticas]) -> str:
@@ -282,9 +326,11 @@ def executar(
 
     A API e consultada primeiro: se estiver fora do ar, falha antes de gastar tempo medindo.
     """
+    if parametros.repeticoes < 1:
+        raise ValueError("repeticoes deve ser >= 1.")
     cliente = ClienteHttp(url) if url else None
     versao_http: str | None = None
-    resultados: dict[str, Estatisticas] = {}
+    rodadas: dict[str, list[Estatisticas]] = {}
     try:
         if cliente:
             versao_http = cliente.versao_modelo()
@@ -295,29 +341,34 @@ def executar(
                     versao_http,
                     classificador.versao,
                 )
-        logger.info(
-            "Medindo inferencia pura (%d + %d chamadas)...",
-            parametros.aquecimento,
-            parametros.medicoes,
-        )
-        resultados["inferencia"] = calcular_estatisticas(
-            medir(classificador.classificar, textos, parametros.aquecimento, parametros.medicoes)
-        )
+        niveis: dict[str, Callable[[str], object]] = {"inferencia": classificador.classificar}
         if cliente:
-            logger.info(
-                "Medindo HTTP em %s (%d + %d chamadas)...",
-                url,
-                parametros.aquecimento,
-                parametros.medicoes,
-            )
-            resultados["http"] = calcular_estatisticas(
-                medir(cliente.classificar, textos, parametros.aquecimento, parametros.medicoes)
-            )
+            niveis["http"] = cliente.classificar
+        for nome, chamada in niveis.items():
+            rodadas[nome] = []
+            for rodada in range(1, parametros.repeticoes + 1):
+                logger.info(
+                    "Medindo %s%s (%d + %d chamadas)...",
+                    nome if nome == "inferencia" else f"HTTP em {url}",
+                    f", rodada {rodada}/{parametros.repeticoes}"
+                    if parametros.repeticoes > 1
+                    else "",
+                    parametros.aquecimento,
+                    parametros.medicoes,
+                )
+                rodadas[nome].append(
+                    calcular_estatisticas(
+                        medir(chamada, textos, parametros.aquecimento, parametros.medicoes)
+                    )
+                )
     finally:
         if cliente:
             cliente.fechar()
+    resultados = {nome: consolidar_repeticoes(series) for nome, series in rodadas.items()}
 
-    return montar_relatorio(rotulo, parametros, classificador.versao, resultados, versao_http)
+    return montar_relatorio(
+        rotulo, parametros, classificador.versao, resultados, versao_http, rodadas
+    )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -332,12 +383,20 @@ def main(argv: Sequence[str] | None = None) -> None:
     parser.add_argument("--medicoes", type=int, default=MEDICOES_PADRAO)
     parser.add_argument("--semente", type=int, default=SEMENTE_PADRAO)
     parser.add_argument(
+        "--repeticoes",
+        type=int,
+        default=REPETICOES_PADRAO,
+        help="repete a medicao N vezes e usa a mediana (resiste a picos do sistema)",
+    )
+    parser.add_argument(
         "--saida", type=Path, help="JSON de saida (padrao: docs/benchmark_<rotulo>.json)"
     )
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    parametros = Parametros(args.amostras, args.aquecimento, args.medicoes, args.semente)
+    parametros = Parametros(
+        args.amostras, args.aquecimento, args.medicoes, args.semente, args.repeticoes
+    )
     settings = Settings.from_env()
     try:
         textos = carregar_textos(settings, parametros)
@@ -349,6 +408,8 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     resultados = {nome: Estatisticas(**dados) for nome, dados in relatorio["resultados"].items()}
     print(formatar_tabela(resultados))
+    for nome, lista in relatorio.get("rodadas", {}).items():
+        print(f"P50 por rodada ({nome}, ms): " + ", ".join(f"{r['p50_ms']:.2f}" for r in lista))
     saida = args.saida or Path("docs") / f"benchmark_{args.rotulo}.json"
     saida.parent.mkdir(parents=True, exist_ok=True)
     saida.write_text(json.dumps(relatorio, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
