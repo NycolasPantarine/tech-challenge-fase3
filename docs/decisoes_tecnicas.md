@@ -16,7 +16,8 @@ segredos roda no GitHub Actions (Linux), onde nao ha esse problema (ver D-030).
 
 ## D-004 - Dependencias entram por bloco
 Bloco 0 so tem ferramentas de desenvolvimento. scikit-learn entra no 1b; FastAPI e uvicorn
-no 1c; prometheus-client no 3; ONNX no 4. Airflow roda em container proprio e nao entra no
+no 1c; prometheus-client no 3; ONNX no 4 (`onnxruntime` em runtime; `skl2onnx` e `onnx`, que
+so convertem, ficam em desenvolvimento e na imagem do Airflow). Airflow roda em container proprio e nao entra no
 `pyproject.toml`, para evitar conflito de versoes com a API.
 
 ## D-005 - `.gitignore` com padroes ancorados
@@ -80,7 +81,7 @@ Minusculas, tokenizacao e remocao de stop words ficam em `triagem.texto.normaliz
 (`StringNormalizer`), que falhou ao carregar num ambiente sem o locale `en_US.UTF-8`
 (situacao provavel em imagens slim; a confirmar no Docker, bloco 1d). Com a normalizacao
 fora do pipeline, esse operador deixa de ser necessario. A concordancia entre ONNX e
-scikit-learn sera medida no benchmark reproduzivel da Etapa 4. A mesma funcao e usada no
+scikit-learn foi medida na Etapa 4 (D-033). A mesma funcao e usada no
 treino e na API.
 
 ## D-017 - Calibracao de probabilidades
@@ -170,7 +171,8 @@ o container recusa subir (D-023), que e o comportamento desejado. Treinar durant
 - `HEALTHCHECK` com o proprio Python (a imagem slim nao tem curl) batendo em `/health`.
 - `.dockerignore` deixa fora `.git`, `.env*`, dados, artefatos, testes e docs: nenhum
   segredo ou dado entra no contexto de build.
-- Tamanho medido da imagem: 490 MB (`docker images`, descomprimido). Nao foi otimizado
+- Tamanho medido da imagem: 490 MB (`docker images`, descomprimido; 583 MB depois de incluir o
+  ONNX Runtime, Bloco 4). Nao foi otimizado
   alem do multi-stage e da base slim; a composicao por camada nao foi investigada.
 
 ## D-028 - Benchmark de latencia em dois niveis
@@ -241,9 +243,12 @@ classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).
 - **Medido** (Docker Desktop, 8 CPUs): execucao completa em 4 min 01 s (`treinar`: 2 min 54 s).
   A API subiu com o modelo publicado pela DAG e classificou. A DAG tambem foi executada fora do
   container (Airflow 3.3.2, Python 3.13) durante o desenvolvimento, com o mesmo resultado.
-- **Limite conhecido:** sao dois arquivos (modelo e metadados), trocados um apos o outro; ha
-  uma janela de milissegundos entre as duas trocas. A API le o modelo so ao iniciar (D-023),
-  entao so um restart nesse instante pegaria modelo novo com metadados antigos.
+- **Atualizacao (Bloco 4, D-033):** a DAG ganhou a tarefa `exportar_onnx` entre `treinar` e
+  `validar_modelo`, e a validacao passou a exigir o ONNX.
+- **Limite conhecido:** sao tres arquivos (ONNX, modelo e metadados), trocados um apos o
+  outro, o ONNX primeiro; ha uma janela de milissegundos entre as trocas. A API le o modelo so
+  ao iniciar (D-023) e, no modo ONNX, confere o arquivo contra o `metadata.json` (hash e
+  `treinado_em`): um restart nesse instante recusa subir em vez de servir um par inconsistente.
 - **Nao tratado:** staging de modelos reprovados nao e apagado automaticamente (fica para
   diagnostico) e nao ha rollback para um modelo anterior.
 
@@ -317,3 +322,53 @@ classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).
   em volume nomeado.
 - **Nao tratado:** alertas, autenticacao no Prometheus, coleta de metricas do host/container e
   varias instancias da API.
+
+## D-033 - Otimizacao com ONNX: conversao, portao de paridade e motor de inferencia
+- **Motor escolhido por configuracao.** `TRIAGEM_BACKEND` (`sklearn` ou `onnx`; valor invalido
+  falha com mensagem). O padrao do **codigo** e `sklearn`, para quem clona e roda sem exportar
+  nada; o padrao do **compose** e `onnx`, que e a configuracao otimizada do projeto. O servico de
+  classificacao (D-024) ja isolava o motor, entao a API nao mudou.
+- **Tres defeitos da conversao automatica do `skl2onnx`**, encontrados porque a paridade foi
+  medida de verdade (nao suposta) e corrigidos no codigo (`triagem/onnx_export.py`):
+  1. **TF-IDF sublinear.** O conversor calcula `log(contagem + 1)`; o scikit-learn usa
+     `1 + log(contagem)` para contagens positivas. A correcao e uma cirurgia no grafo; se o
+     padrao esperado nao aparecer exatamente uma vez, a exportacao falha em vez de adivinhar.
+  2. **Calibracao isotonica.** O conversor busca o limiar mais proximo em vez de interpolar. A
+     correcao densifica os calibradores (passo 0,001) numa copia do modelo. A maior diferenca
+     de probabilidade restante (0,0103) provavelmente vem dessa discretizacao; nao isolei a
+     causa.
+  3. **Tokens nao ASCII.** O tokenizador do ONNX Runtime trata acentos de forma diferente do
+     scikit-learn. A solucao de contorno mapeia esses tokens para um termo reservado
+     (`tokenforadovocabulario`) que o modelo ignora; a exportacao falha se esse termo existir
+     no vocabulario. E uma solucao de contorno, nao uma equivalencia demonstrada: foi validada
+     com 200 textos acentuados.
+- **Portao de paridade.** Antes de gravar o `modelo.onnx`, compara os dois motores, requisicao
+  a requisicao, nos textos de teste mais 200 variantes acentuadas: diferenca maxima de
+  probabilidade <= 0,02 e <= 0,1% de urgencias diferentes. Os limites sao uma escolha minha de
+  margem; resultado medido: 0,0103 e 0 divergencias em 3.088 amostras. O arquivo e escrito num
+  nome temporario, verificado e so entao renomeado; o `metadata.json` e atualizado de forma
+  atomica depois.
+- **Amarracao ao treino.** O bloco `onnx` do `metadata.json` registra SHA-256, `treinado_em`,
+  classes, versoes e paridade. No modo ONNX a API recusa subir se o bloco faltar, se for de
+  outro treino, se o hash diferir ou se o arquivo estiver ilegivel. A versao exibida ganha o
+  sufixo `+onnx`. Isso evita servir um ONNX antigo com um modelo novo (ou o inverso).
+- **Sessao do ONNX Runtime:** uma thread de intra-op e uma de inter-op, provedor de CPU, sem
+  logs. E coerente com D-019 (inferencia em thread unica) e com a requisicao individual.
+- **Benchmark com repeticoes.** `--repeticoes N` roda N rodadas e reporta a **mediana de cada
+  estatistica**; as rodadas ficam no JSON. Usei 5. A comparacao so vale na mesma maquina e
+  sessao (o ruido entre sessoes no Windows foi maior que o ruido entre rodadas). Resultados e
+  interpretacao no README.
+- **Airflow.** A DAG exporta o ONNX junto com o retreino (`exportar_onnx`), no staging, e a
+  validacao exige os dois motores (D-029). Na imagem do Airflow entram `onnx`, `onnxruntime` e
+  `skl2onnx` nas mesmas versoes do `poetry.lock` (um teste confere). `protobuf`, `flatbuffers`
+  e `ml-dtypes` ficam **sem versao fixa** de proposito: o arquivo de constraints do Airflow fixa
+  o protobuf em 6.33.6, o `poetry.lock` tem outra versao, e fixar a do lock quebraria o build.
+  Validado: a imagem reconstruida instalou o conjunto sem conflito e a DAG rodou com as 5
+  tarefas verdes.
+- **Imagem da API:** so precisa do `onnxruntime` (+93 MB, 583 MB no total); a conversao nao
+  roda nela.
+- **Limites conhecidos:** (a) a conversao depende de tres correcoes sobre um conversor de
+  terceiros; uma atualizacao do `skl2onnx` pode exigir revisao, e o portao existe para
+  detectar isso; (b) a paridade e estatistica (3.088 textos), nao uma prova; (c) a
+  normalizacao do texto continua em Python (D-016); (d) o ganho na API e 1,8x, nao 8x, porque o
+  custo HTTP nao depende do motor.

@@ -7,8 +7,8 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. A otimizacao do modelo (ONNX) e a decisao de arquitetura em nuvem entram
-> nos proximos blocos. Progresso em `docs/roadmap.md`; decisoes e justificativas em
+> Em construcao. A decisao de arquitetura em nuvem e o roteiro de execucao do zero entram no
+> ultimo bloco. Progresso em `docs/roadmap.md`; decisoes e justificativas em
 > `docs/decisoes_tecnicas.md`.
 
 ## Problema
@@ -98,7 +98,10 @@ poetry run uvicorn triagem.api:criar_app --factory --port 8000
 ```
 
 A API carrega o modelo de `artifacts/` ao iniciar e **recusa subir** se o artefato nao
-existir ou se a versao do scikit-learn for diferente da usada no treino.
+existir ou se a versao do scikit-learn for diferente da usada no treino. O motor de inferencia
+e escolhido por `TRIAGEM_BACKEND`: `sklearn` (padrao do codigo) ou `onnx` (padrao do
+`docker-compose.yml`; ver "Otimizacao de latencia"). Com `onnx`, a API tambem recusa subir se
+o `modelo.onnx` nao existir, nao for do mesmo treino do `modelo.joblib` ou tiver sido alterado.
 
 **`POST /predict`**: classifica um laudo (1 a 10.000 caracteres).
 
@@ -154,36 +157,92 @@ Caracteristicas da imagem (D-027): build em dois estagios (o Poetry nao chega na
 final), base `python:3.11-slim`, execucao com usuario sem privilegios (uid 10001),
 `HEALTHCHECK` em `/health` e nenhum segredo ou dado no contexto de build (`.dockerignore`).
 
-Tamanho medido da imagem: 490 MB (`docker images`, descomprimido).
+Tamanho medido da imagem: 490 MB na Etapa 1 e **583 MB** depois de incluir o ONNX Runtime
+(`docker images`, descomprimido). O `docker run` acima usa o motor do scikit-learn, o padrao do
+codigo; para usar o ONNX acrescente `-e TRIAGEM_BACKEND=onnx` (requer `artifacts/modelo.onnx`).
 
-## Latencia (baseline do modelo original)
+## Otimizacao de latencia (ONNX)
 
-Referencia para a comparacao com o modelo otimizado (ONNX, Etapa 4). O script mede dois
-niveis: **inferencia** (so o modelo, no processo local) e **http** (`POST /predict` da API em
-container). Requisicoes sequenciais, 100 de aquecimento descartadas e 1.000 medidas, usando
-200 laudos reais do conjunto de teste sorteados com semente fixa.
+O modelo original (pipeline do scikit-learn) e convertido para **ONNX** e servido pelo ONNX
+Runtime. A conversao e uma etapa explicita, com um **portao de paridade**: o arquivo so e
+gravado depois de comparar, em 3.088 textos (os 2.888 do teste mais 200 variantes acentuadas),
+as probabilidades e as decisoes de urgencia dos dois motores.
 
 ```powershell
-docker run --rm -d --name triagem-api -p 8010:8000 -v "${PWD}\artifacts:/app/artifacts:ro" triagem-api:dev
-poetry run python -m triagem.benchmark --url http://localhost:8010
-docker stop triagem-api
+poetry run python -m triagem.treino        # gera artifacts/modelo.joblib
+poetry run python -m triagem.onnx_export   # gera artifacts/modelo.onnx e o confere
 ```
 
-Resultado (Windows 10, Python 3.11.9, 8 CPUs, Docker Desktop; `docs/benchmark_sklearn.json`):
+| Verificacao de paridade (original x ONNX) | Resultado | Limite do portao |
+|---|---|---|
+| Maior diferenca de probabilidade | 0,0103 | 0,02 |
+| Diferenca media | 0,000006 | - |
+| Urgencias diferentes | 0 de 3.088 | 0,1% |
 
-| Nivel | Media (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Max (ms) |
-|---|---|---|---|---|---|
-| Inferencia (modelo) | 10,9 | 9,8 | 17,5 | 23,1 | 43,3 |
-| HTTP (API em container) | 14,2 | 12,8 | 24,5 | 32,9 | 44,8 |
+O `modelo.onnx` tem 2,9 MB (o `modelo.joblib`, 9,1 MB). O `metadata.json` guarda o SHA-256 do
+ONNX, o `treinado_em` do modelo a que ele pertence e o resultado da paridade; a API compara
+tudo isso ao iniciar. Os limites do portao (0,02 e 0,1%) sao uma escolha minha de margem, nao
+um criterio clinico; a maior diferenca observada foi metade do limite.
 
-O HTTP soma cerca de 3 ms (P50) sobre a inferencia: FastAPI, serializacao e rede do Docker.
+### Benchmark: original x otimizado
 
-> **Como interpretar:** o valor depende da maquina e serve para comparar o modelo original com
-> o otimizado **na mesma maquina**, nao como numero absoluto de producao. P50 e P95 variaram
-> pouco entre execucoes (P50 de inferencia entre 9,1 e 9,8 ms; de HTTP entre 12,8 e 13,1 ms);
-> P99 e maximo oscilam mais, por serem caudas. O cliente envia cada requisicao em uma unica
-> escrita: com o `http.client` padrao (duas escritas) o Docker Desktop no Windows chegou a
-> 57 ms por requisicao contra 11 ms (detalhes e medicoes em D-028).
+O script mede dois niveis: **inferencia** (so o modelo, no processo local) e **http**
+(`POST /predict` da API em container). Requisicoes sequenciais, 100 de aquecimento descartadas
+e 1.000 medidas por rodada, com 200 laudos reais do conjunto de teste sorteados com semente
+fixa. Cada estatistica da tabela e a **mediana de 5 rodadas**; as rodadas ficam no JSON.
+
+```powershell
+docker compose up -d --build
+poetry run python -m triagem.benchmark --url http://localhost:8010 --repeticoes 5 --rotulo onnx
+```
+
+Para o original, suba a API com `TRIAGEM_BACKEND=sklearn` (e rode o script com a mesma
+variavel). Resultado (Windows 10, Python 3.11.9, 8 CPUs, Docker Desktop; as duas medicoes
+foram feitas uma apos a outra na mesma maquina; `docs/benchmark_sklearn.json` e
+`docs/benchmark_onnx.json`):
+
+| Nivel | Motor | Media (ms) | P50 (ms) | P95 (ms) | P99 (ms) | Max (ms) |
+|---|---|---|---|---|---|---|
+| Inferencia (modelo) | original | 7,07 | 6,35 | 11,78 | 16,01 | 25,34 |
+| Inferencia (modelo) | **ONNX** | 0,90 | 0,79 | 1,54 | 2,09 | 2,80 |
+| HTTP (API em container) | original | 11,19 | 9,89 | 17,52 | 24,36 | 32,55 |
+| HTTP (API em container) | **ONNX** | 6,13 | 5,45 | 10,22 | 13,56 | 38,58 |
+
+| Ganho (original / ONNX) | P50 | P95 | P99 |
+|---|---|---|---|
+| Inferencia (modelo) | 8,0x | 7,6x | 7,7x |
+| HTTP (API em container) | 1,8x | 1,7x | 1,8x |
+
+**Por que 8x no modelo e so 1,8x na API:** o ONNX reduz a classificacao de ~6,3 para ~0,8 ms,
+mas a requisicao HTTP inteira tem um custo que nao depende do motor (FastAPI, serializacao,
+rede do Docker Desktop): a diferenca entre HTTP e inferencia no P50 e de ~3,5 ms no original e
+~4,7 ms no ONNX. Depois da otimizacao, esse custo passa a ser o grosso do tempo. Ganhos
+adicionais viriam dali, nao do modelo. A subtracao e so indicativa, porque a inferencia e
+medida no Windows e o HTTP no container.
+
+> **Como interpretar:**
+> - O valor depende da maquina e serve para comparar os motores **na mesma maquina e na mesma
+>   sessao**, nao como numero absoluto de producao. Uma medicao anterior do original, feita em
+>   outra sessao, deu P50 de inferencia de 9,8 ms contra os 6,3 ms de agora: o ruido entre
+>   sessoes no Windows e maior que o ruido entre rodadas, por isso a comparacao so vale dentro
+>   da mesma sessao.
+> - Entre as 5 rodadas, o P50 variou de 6,04 a 6,94 ms (original, inferencia), 0,78 a 0,85 ms
+>   (ONNX, inferencia), 9,40 a 10,12 ms (original, HTTP) e 4,96 a 5,88 ms (ONNX, HTTP). As
+>   faixas nao se sobrepoem entre os motores. P99 e maximo oscilam mais, por serem caudas; o
+>   maximo do HTTP com ONNX chegou a 58 ms em duas rodadas, um pico isolado, nao uma regressao.
+> - O cliente envia cada requisicao em uma unica escrita: com o `http.client` padrao (duas
+>   escritas) o Docker Desktop no Windows chegou a 57 ms por requisicao contra 11 ms (D-028).
+
+**Limitacoes assumidas do ONNX** (detalhes e justificativas em D-033):
+- A conversao automatica do `skl2onnx` **nao e fiel** neste pipeline: tres divergencias foram
+  encontradas e corrigidas no codigo (formula do TF-IDF sublinear, calibracao isotonica e
+  tokens nao ASCII). O portao de paridade existe justamente para falhar alto se uma
+  atualizacao do conversor reintroduzir o problema.
+- Palavras nao ASCII sao tratadas por uma solucao de contorno (mapeadas para um termo
+  reservado, que o modelo ignora). A paridade foi medida com 200 textos acentuados, mas e uma
+  amostra, nao uma garantia para qualquer texto.
+- A normalizacao do texto continua em Python (D-016) e o modelo ONNX e gerado de um treino
+  especifico: um retreino exige reexportar (a DAG faz isso).
 
 ## CI/CD (GitHub Actions)
 
@@ -210,15 +269,16 @@ A DAG `treino_triagem` (`airflow/dags/treino_triagem.py`) retreina o modelo e o 
 diretorio que a API le:
 
 ```text
-ler_dados -> treinar -> validar_modelo -> publicar_modelo
+ler_dados -> treinar -> exportar_onnx -> validar_modelo -> publicar_modelo
 ```
 
 | Tarefa | O que faz |
 |---|---|
 | `ler_dados` | baixa o dataset (se preciso), confere o SHA-256 e valida os CSVs |
 | `treinar` | compara os candidatos, escolhe o melhor e grava em um **staging** |
-| `validar_modelo` | **portao de qualidade**: o modelo precisa carregar, classificar e atingir F1 de urgencia >= 0,55 e recall urgente >= 0,75 no teste |
-| `publicar_modelo` | troca os arquivos do modelo por renomeacao atomica e remove o staging |
+| `exportar_onnx` | converte o modelo recem-treinado para ONNX **no staging** e roda o portao de paridade (D-033) |
+| `validar_modelo` | **portao de qualidade**: o modelo precisa carregar nos dois motores (scikit-learn e ONNX), classificar com a mesma urgencia e atingir F1 de urgencia >= 0,55 e recall urgente >= 0,75 no teste |
+| `publicar_modelo` | troca os arquivos (ONNX, modelo e metadados) por renomeacao atomica e remove o staging |
 
 Um modelo reprovado ou um treino interrompido **nunca substitui o modelo em uso**. O disparo
 e manual (`schedule=None`): o dataset nao muda, entao retreinar sem motivo nao melhora o
@@ -233,26 +293,30 @@ Abra http://localhost:8080 (usuario `admin`, senha do comando acima), dispare a 
 `treino_triagem` e aguarde. Para desligar: `docker compose -f docker-compose.airflow.yml down`.
 O primeiro build baixa a imagem do Airflow (mais de 1 GB).
 
-O treino do container leva cerca de 4 minutos (Random Forest: ~3 min). O modelo publicado e lido
-pela API do mesmo diretorio `artifacts/` (D-026); isso foi verificado: a API subiu e classificou
-com o modelo gravado pela DAG.
+O treino do container levou 2 min 28 s e a exportacao para ONNX
+cerca de 12 s. O modelo publicado e lido pela API do mesmo diretorio `artifacts/` (D-026); isso foi
+verificado: a API do compose, reiniciada depois da DAG, subiu em modo ONNX com a versao gravada
+pela DAG (`...+onnx`).
 
-Execucao aprovada (as 4 tarefas, 4 min 01 s):
+Execucao aprovada (as 5 tarefas, 3 min 20 s):
 
-![DAG aprovada](docs/img/airflow_dag_sucesso.png)
+![DAG aprovada, com exportacao ONNX](docs/img/airflow_dag_onnx.png)
 
-Execucao com o portao em `f1_minimo = 0.99`: `validar_modelo` reprova, `publicar_modelo` nao
-roda e o modelo em uso continua o mesmo (o modelo reprovado fica em `artifacts/.staging/` para
-diagnostico):
+A primeira versao da DAG, com 4 tarefas (antes do ONNX), esta em `docs/img/airflow_dag_sucesso.png`.
+
+Execucao com o portao em `f1_minimo = 0.99` (feita na versao de 4 tarefas, antes do ONNX):
+`validar_modelo` reprova, `publicar_modelo` nao roda e o modelo em uso continua o mesmo (o
+modelo reprovado fica em `artifacts/.staging/` para diagnostico):
 
 ![DAG reprovada pelo portao](docs/img/airflow_dag_reprovado.png)
 
 > **Limitacoes assumidas:** o Airflow roda em modo `standalone` (um container, SQLite), o
 > que atende ao desafio mas nao e uma arquitetura de producao. A interface fica restrita a
 > `127.0.0.1` e usa o gerenciador de autenticacao simples, que o proprio Airflow avisa nao ser
-> recomendado para producao. Como sao dois arquivos (modelo e metadados), ha uma janela de
-> milissegundos entre as duas trocas; a API so le o modelo ao iniciar, entao o risco se limita
-> a um restart exatamente nesse instante. Detalhes em D-029.
+> recomendado para producao. Como sao tres arquivos (ONNX, modelo e metadados), ha uma janela de
+> milissegundos entre as trocas; a API so le o modelo ao iniciar e confere o ONNX contra os
+> metadados, entao o risco se limita a um restart exatamente nesse instante (e o resultado
+> seria a recusa de subir, nao uma resposta errada). Detalhes em D-029.
 
 ## Monitoramento (Prometheus e Grafana)
 
@@ -261,11 +325,13 @@ O `docker-compose.yml` sobe a API, o **Prometheus** (coleta `/metrics` a cada 5 
 (`monitoring/grafana/dashboards/triagem.json`): nao ha nada para configurar na interface.
 
 ```powershell
-poetry run python -m triagem.treino   # se ainda nao existir artifacts/
+poetry run python -m triagem.treino        # se ainda nao existir artifacts/
+poetry run python -m triagem.onnx_export   # o compose usa o motor ONNX
 cp .env.example .env
 ```
 
-Edite o `.env` e preencha `GRAFANA_ADMIN_PASSWORD` com a senha que preferir: ela **nao tem
+Edite o `.env` (o padrao `TRIAGEM_BACKEND=onnx` ja serve; use `sklearn` para o motor original)
+e preencha `GRAFANA_ADMIN_PASSWORD` com a senha que preferir: ela **nao tem
 valor padrao** e, sem ela, o compose recusa subir. Depois:
 
 ```powershell
@@ -341,4 +407,5 @@ poetry run ruff format --check .
 poetry run pytest
 poetry run python -m triagem.dados    # baixa e valida o dataset
 poetry run python -m triagem.treino   # compara modelos, treina e gera artifacts/
+poetry run python -m triagem.onnx_export   # converte para ONNX e confere a paridade
 ```

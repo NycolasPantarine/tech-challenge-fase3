@@ -9,7 +9,7 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | 1 | 05-10/10 | Etapa 1: dataset, modelo base, API, Docker, baseline de latencia | concluido |
 | 2 | 14/10 | Etapa 2: testes, GitHub Actions, DAG Airflow | concluido |
 | 3 | 15-18/10 | Etapa 3: Prometheus, Grafana, docker-compose | concluido |
-| 4 | 19-22/10 | Etapa 4: ONNX, benchmark original vs otimizado | pendente |
+| 4 | 18/10 | Etapa 4: ONNX, benchmark original vs otimizado | concluido |
 | 5 | 23-25/10 | README final, validacao do zero, video STAR | pendente |
 | - | 26/10 | Reserva | - |
 | - | 27/10 | Entrega | - |
@@ -39,6 +39,15 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | 3b | `docker-compose.yml` com API e Prometheus, gerador de carga | concluido |
 | 3c | Grafana provisionado, dashboard de 7 paineis e print | concluido |
 | 3d | documentacao: README, D-031 e D-032, roadmap | concluido |
+
+## Sub-blocos do Bloco 4
+
+| Sub-bloco | Entrega | Status |
+|---|---|---|
+| 4a | exportacao para ONNX com portao de paridade, motor ONNX na API | concluido |
+| 4b | ONNX como motor do compose, benchmark com repeticoes | concluido |
+| 4c | DAG do Airflow exporta o ONNX junto com o retreino | concluido |
+| 4d | documentacao: README, D-033, roadmap | concluido |
 
 ## Bloco 0 - criterios de aceite (concluido)
 
