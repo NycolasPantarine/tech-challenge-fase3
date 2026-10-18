@@ -7,9 +7,7 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
-> Em construcao. A decisao de arquitetura em nuvem e o roteiro de execucao do zero entram no
-> ultimo bloco. Progresso em `docs/roadmap.md`; decisoes e justificativas em
-> `docs/decisoes_tecnicas.md`.
+Progresso em `docs/roadmap.md`; decisoes e justificativas em `docs/decisoes_tecnicas.md`.
 
 ## Problema
 
@@ -393,6 +391,77 @@ o dashboard citar uma metrica que a API nao expoe.
 > - O Grafana usa a senha do `.env`; o Prometheus nao tem autenticacao e so e acessivel
 >   a partir da propria maquina.
 
+## Arquitetura em nuvem (decisao)
+
+Esta secao e uma **decisao documentada**: nada abaixo foi implantado nem testado na nuvem.
+A aplicacao roda localmente em Docker, e o que foi validado esta nas secoes anteriores.
+
+### O problema decide o modo de execucao
+
+O sistema tem dois componentes com necessidades opostas, e a pergunta util nao e "batch ou
+tempo real?", e sim qual modo atende cada componente:
+
+| Componente | Requisito real | Modo escolhido | Por que |
+|---|---|---|---|
+| Classificar um laudo (`/predict`) | resposta imediata, a triagem decide quem e atendido primeiro | **tempo real** | um lote noturno nao serve: o valor do sistema esta em sinalizar o caso urgente na hora |
+| Retreinar o modelo | sem pressa; o dataset nao muda e o disparo e manual | **batch** | executa, termina e deixa de custar; falha se resolve reexecutando |
+| Coletar metricas | continuo, leve | servico gerenciado | ja expomos `/metrics` no padrao Prometheus |
+
+| Eixo | Batch | Tempo real | Serverless |
+|---|---|---|---|
+| Latencia | alta, tolerada | baixa e previsivel | variavel (partida a frio) |
+| Custo | menor, sem ociosidade | maior, infraestrutura permanente | bom para carga intermitente |
+| Tolerancia a falhas | alta, basta reexecutar | baixa, o impacto e imediato | media, com novas tentativas automaticas |
+| Atualizacao do modelo | controlada, reversao simples | exige implantacao gradual e versionamento | rapida |
+
+### Escolha: Google Cloud Platform
+
+AWS, Azure e GCP resolvem este cenario com servicos equivalentes; a escolha do GCP e de
+**simplicidade**, nao de superioridade tecnica: o **Cloud Run** executa a imagem Docker que ja
+existe, sem reescrever a aplicacao, e o **Cloud Run Jobs** executa a mesma imagem como tarefa
+batch. Equivalentes: AWS (ECS Fargate ou App Runner + AWS Batch) e Azure (Container Apps +
+Container Apps Jobs).
+
+| Funcao | Servico (GCP) | Observacao |
+|---|---|---|
+| API de inferencia (tempo real) | Cloud Run | a imagem escuta na porta 8000; no Cloud Run basta configurar essa porta |
+| Imagem do container | Artifact Registry | o CI hoje so constroi a imagem (D-030); publicar seria um passo novo |
+| Retreino (batch) | Cloud Run Jobs, disparado por Cloud Scheduler ou manualmente | executa treino, exportacao ONNX e validacao; o codigo ja esta fora da DAG (D-029) e e reaproveitado |
+| Modelo e dados | Cloud Storage | modelo versionado por treino; a API leria o bucket montado como volume somente leitura (mantem a decisao D-026) |
+| Metricas e dashboards | Managed Service for Prometheus + Cloud Monitoring (ou Grafana apontando para ele) | `/metrics` ja existe; no Cloud Run a coleta exigiria um coletor auxiliar |
+| Segredos | Secret Manager | hoje a unica senha e a do Grafana, no `.env` local |
+
+**Por que nao o Cloud Composer (Airflow gerenciado)?** Para uma unica DAG, o custo fixo de um
+ambiente permanente nao se justifica; um job agendado entrega o mesmo resultado. O Airflow
+continua no projeto (e o que a disciplina pede e o que foi validado), e a DAG local e o
+retorno natural caso o numero de pipelines cresca. **Por que nao Vertex AI?** E um servico
+gerenciado completo para modelos; para um modelo de 3 MB servido por um container proprio
+acrescentaria custo e dependencia do fornecedor sem ganho aqui.
+
+### Trade-offs e riscos assumidos
+
+- **Partida a frio.** Cloud Run pode reduzir a zero instancias; a primeira requisicao depois
+  de ociosidade paga o tempo de subir o container e carregar o modelo (a API carrega o modelo
+  ao iniciar, D-023). Para triagem isso nao e aceitavel: a recomendacao e manter **ao menos uma
+  instancia ativa**, pagando um custo base pequeno em troca de latencia previsivel.
+- **Custo (FinOps).** Cloud Run cobra por uso, o job batch nao custa quando nao esta rodando, e
+  a imagem enxuta (583 MB) reduz o tempo de subida. Recomenda-se um orcamento com alerta, um
+  projeto separado para desenvolvimento e producao e etiquetas de custo por servico. Nao
+  estimei valores: dependem de volume e preco vigente, e eu nao medi.
+- **Dados de saude.** Laudos sao dados pessoais sensiveis (LGPD). A recomendacao e: regiao no
+  Brasil (`southamerica-east1`), acesso autenticado (sem acesso publico), conta de servico com
+  o minimo de permissoes e nenhum texto de laudo em log ou metrica (ja garantido e testado,
+  D-022 e D-031). Uso real com dados de pacientes exigiria avaliacao juridica e clinica que
+  este trabalho nao fez.
+- **Uma instancia nao e alta disponibilidade.** Escalar a API exige reavaliar as metricas, que
+  hoje pressupoem uma unica worker (D-031).
+
+### O que falta para implantar de fato
+
+Publicar a imagem no Artifact Registry a partir do CI, criar o bucket e o servico, configurar
+autenticacao e orcamento, e sobrepor o Prometheus gerenciado ao dashboard. Nenhum desses passos
+foi feito.
+
 ## Ambiente de desenvolvimento
 
 O projeto precisa ficar fora do OneDrive (ex.: `C:\dev\tech-challenge-fase3`).
@@ -409,3 +478,23 @@ poetry run python -m triagem.dados    # baixa e valida o dataset
 poetry run python -m triagem.treino   # compara modelos, treina e gera artifacts/
 poetry run python -m triagem.onnx_export   # converte para ONNX e confere a paridade
 ```
+
+## Uso de IA no desenvolvimento
+
+Este projeto foi desenvolvido com o assistente de IA **Claude** (Anthropic), usado como
+parceiro de engenharia: propunha a implementacao e as alternativas, e escrevia codigo, testes e
+documentacao. O autor definiu o escopo e as decisoes e executou e conferiu o resultado na
+propria maquina (testes, containers, Grafana, Airflow, benchmarks). Os commits trazem o
+trailer `Co-Authored-By` por isso.
+
+Duas consequencias praticas: os numeros do README vem de execucoes reais (os JSONs de
+benchmark e as metricas em `artifacts/metadata.json` estao no repositorio), e o que **nao foi
+validado** esta dito como tal nas limitacoes de cada secao (por exemplo, a arquitetura em
+nuvem e apenas uma decisao documentada).
+
+## Licencas e atribuicao
+
+O dataset [Medical Abstracts TC Corpus](https://github.com/sebischair/Medical-Abstracts-TC-Corpus)
+e distribuido sob [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/) e nao e
+copiado para este repositorio: e baixado e verificado por SHA-256 (`python -m triagem.dados`).
+O modelo treinado e os artefatos tambem nao sao versionados (D-013).

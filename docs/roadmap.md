@@ -49,6 +49,15 @@ Regra de trabalho: so avanca de bloco quando o atual estiver 100% validado.
 | 4c | DAG do Airflow exporta o ONNX junto com o retreino | concluido |
 | 4d | documentacao: README, D-033, roadmap | concluido |
 
+## Sub-blocos do Bloco 5
+
+| Sub-bloco | Entrega | Status |
+|---|---|---|
+| 5a | decisao de arquitetura em nuvem no README e D-034 | concluido |
+| 5b | secoes de uso de IA e de licencas/atribuicao | concluido |
+| 5c | validacao do zero em clone limpo, seguindo so o README | pendente |
+| 5d | roteiro do video STAR e link do video no README | pendente |
+
 ## Bloco 0 - criterios de aceite (concluido)
 
 - [x] Projeto em `C:\dev\tech-challenge-fase3` (fora do OneDrive)

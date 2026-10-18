@@ -67,9 +67,9 @@ Tudo reproduzivel com `python -m triagem.treino`.
 Dados baixados por script com SHA-256 fixo; modelo gerado pelo treino. No git entra so
 codigo. Sem DVC: o desafio nao exige e o download verificado garante reprodutibilidade.
 
-## D-014 - Estrategia de nuvem (a documentar no README)
+## D-014 - Estrategia de nuvem (documentada no README)
 GCP Cloud Run para a API em tempo real e job batch para retreino. Apenas documentada,
-sem deploy.
+sem deploy. Justificativa completa em D-034 e na secao "Arquitetura em nuvem" do README.
 
 ## D-015 - Download seguro de dados
 Somente https, timeout, verificacao de SHA-256, gravacao atomica (nunca deixa arquivo
@@ -372,3 +372,25 @@ classificacao dentro do container (~8 ms) equivale a do Windows (~9 ms).
   detectar isso; (b) a paridade e estatistica (3.088 textos), nao uma prova; (c) a
   normalizacao do texto continua em Python (D-016); (d) o ganho na API e 1,8x, nao 8x, porque o
   custo HTTP nao depende do motor.
+
+## D-034 - Arquitetura em nuvem: decisao documentada, sem implantacao
+- **Escopo.** O enunciado pede analisar a estrategia de deploy (batch x tempo real) e
+  "documentar de forma textual no README"; o entregavel da Etapa 1 e a API em Docker mais o
+  texto de decisao. Por isso nao ha implantacao real: custaria dinheiro, exigiria conta e
+  cartao e expor uma API de dados de saude teria risco, sem ser pedido. O README diz de forma
+  explicita que nada foi implantado nem testado na nuvem.
+- **A decisao e por componente**, nao global: inferencia em tempo real (a triagem precisa da
+  resposta na hora) e retreino em batch (dataset estatico, disparo manual).
+- **GCP por simplicidade**, nao por superioridade: Cloud Run executa a imagem existente e
+  Cloud Run Jobs executa a mesma imagem como tarefa. AWS e Azure tem equivalentes diretos e
+  estao citados.
+- **Instancia minima ativa** na API, aceitando um custo base para evitar partida a frio, que
+  numa triagem nao e toleravel. **Sem Cloud Composer** para uma unica DAG; **sem Vertex AI**
+  para um modelo de 3 MB.
+- **Nenhum valor de custo foi estimado** (nao foi medido e depende do preco vigente), e as
+  afirmacoes sobre servicos do GCP (por exemplo, volume do Cloud Storage montado no Cloud Run
+  e coletor auxiliar de metricas) vem do material da disciplina e do que conheco desses
+  servicos, **sem teste neste projeto**.
+- **Dados de saude:** regiao no Brasil, acesso autenticado, minimo de permissoes e ausencia de
+  texto de laudo em log e metrica (ja testada). Uso com dados reais de pacientes exigiria
+  avaliacao juridica (LGPD) e clinica fora do escopo.
