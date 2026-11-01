@@ -7,6 +7,8 @@ Tech Challenge - Fase 3 (Cloud and MLOps), PosTech FIAP Machine Learning Enginee
 Classificador de texto servido por API REST em container, com pipeline CI/CD,
 orquestracao de treino e monitoramento.
 
+**Video de demonstracao (metodo STAR):** [youtu.be/7zVKASLJxS8](https://youtu.be/7zVKASLJxS8) (nao listado).
+
 Progresso em `docs/roadmap.md`; decisoes e justificativas em `docs/decisoes_tecnicas.md`.
 
 ## Problema
